@@ -121,6 +121,44 @@ class ClusterStack(Stack):
         # # or, option2: use `addManifest`
         # cluster.add_manifest("hello-kub", service, deployment)
 
+        # # some other services definitions
+        # nodejs_service_details = {
+        #     "service_name": "ecsdemo-nodejs",
+        #     "replicas": 3,
+        #     "labels": {
+        #         "app": "ecsdemo-nodejs"
+        #     },
+        #     "image": "brentley/ecsdemo-nodejs:latest",
+        #     "port": 3000,
+        #     "service_type": "backend"
+        # }
+        #
+        # crystal_service_details = {
+        #     "service_name": "ecsdemo-crystal",
+        #     "replicas": 3,
+        #     "labels": {
+        #         "app": "ecsdemo-crystal",
+        #     },
+        #     "image": "brentley/ecsdemo-crystal:latest",
+        #     "port": 3000,
+        #     "service_type": "backend"
+        # }
+        #
+        # frontend_service_details = {
+        #     "service_name": "ecsdemo-frontend",
+        #     "replicas": 3,
+        #     "labels": {
+        #         "app": "ecsdemo-frontend",
+        #     },
+        #     "image": "brentley/ecsdemo-frontend:latest",
+        #     "port": 3000,
+        #     "service_type": "frontend",
+        #     "env": [
+        #         {"name": "CRYSTAL_URL", "value": "http://ecsdemo-crystal.default.svc.cluster.local/crystal"},
+        #         {"name": "NODEJS_URL", "value": "http://ecsdemo-nodejs.default.svc.cluster.local/"},
+        #     ]
+        # }
+
         # add asg capacity, or node group capacity are two distinct ways to add capacity to an EKS cluster (worker nodes)
         cluster.add_auto_scaling_group_capacity(
             conf.CLUSTER_ASG_NAME,

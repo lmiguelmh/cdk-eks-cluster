@@ -1,58 +1,44 @@
+# Proyecto Integrador DevOps 2023 - 2203
 
-# Welcome to your CDK Python project!
+## Grupo 8 - DevOps2203
 
-This is a blank project for CDK development with Python.
+- Luis Miguel Mamani Humpiri
+- Carlos Ruiz de la Vega
 
-The `cdk.json` file tells the CDK Toolkit how to execute your app.
+## Instrucciones
 
-This project is set up like a standard Python project.  The initialization
-process also creates a virtualenv within this project, stored under the `.venv`
-directory.  To create the virtualenv it assumes that there is a `python3`
-(or `python` for Windows) executable in your path with access to the `venv`
-package. If for any reason the automatic creation of the virtualenv fails,
-you can create the virtualenv manually.
+### Despliegue local
 
-To manually create a virtualenv on MacOS and Linux:
+```shell
+# first, install and configure CDKv2, kubectl 1.23
+cdk deploy
 
-```
-$ python3 -m venv .venv
-```
+# update kube configuration file with information needed to access the newly created cluster
+aws eks update-kubeconfig --name cdk-eks-cluster-cluster-eks --region us-west-2 --role-arn arn:aws:iam::719602558560:role/cdk-eks-cluster-cluster-cdkeksclusterclustereksMas-1HSZX33QNI10U
 
-After the init process completes and the virtualenv is created, you can use the following
-step to activate your virtualenv.
-
-```
-$ source .venv/bin/activate
-```
-
-If you are a Windows platform, you would activate the virtualenv like this:
-
-```
-% .venv\Scripts\activate.bat
+# test kubectl
+kubectl apply -f pod.yml
+kubectl get pods
+# TODO: configure this
+# kubectl port-forward nginx-pod 8080:80 --address 0.0.0.0
+# curl <pod-ip>
 ```
 
-Once the virtualenv is activated, you can install the required dependencies.
+### Despliegue usando CI/CD
 
-```
-$ pip install -r requirements.txt
-```
+- TODO: PR to dev
 
-At this point you can now synthesize the CloudFormation template for this code.
+## Problemas
 
-```
-$ cdk synth
-```
+- El despliegue falló porque se llegó al límite de 5 IPs por región.
+    - Se solicitó el incremento de número de IPs.
+    - ![img.png](img.png)
 
-To add additional dependencies, for example other CDK libraries, just add
-them to your `setup.py` file and rerun the `pip install -r requirements.txt`
-command.
+- El despliegue falló por un error en el manifest.
+    - Se eliminó el manifest para culminar el despliegue.
+    - ![img_1.png](img_1.png)
 
-## Useful commands
-
- * `cdk ls`          list all stacks in the app
- * `cdk synth`       emits the synthesized CloudFormation template
- * `cdk deploy`      deploy this stack to your default AWS account/region
- * `cdk diff`        compare deployed stack with current state
- * `cdk docs`        open CDK documentation
-
-Enjoy!
+- No se pudo usar kubectl desde local.
+    - Se eliminó la versión de kubectl 1.26.3-1.
+    - Se probó con la versión 1.27, 1.26, 1.25, 1.24, finalmente la versión [1.23.17](https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.23.md#client-binaries) 
+    - ![img_2.png](img_2.png)
