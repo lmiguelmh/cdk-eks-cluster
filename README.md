@@ -45,6 +45,10 @@ kubectl get pods
     - Se probó con la versión 1.27, 1.26, 1.25, 1.24, finalmente la versión [1.23.17](https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.23.md#client-binaries) 
     - ![img_2.png](img_2.png)
 
-- Al desplegar el cluster de ElasticSearch se tuvo un problema.
+- No se puede acceder a Kibana con el usuario de Cognito.
     - Posiblemente un error de integración entre UserPool y el IdentityPool. Se añadieron roles y redesplegó.
     - ![img_3.png](img_3.png)
+
+- El despliegue de un manifiesto (service + deployment) falla.
+    - Errores de versión de manifiesto. Se corrigió y cambiaron algunos nombres.
+    - ![img_4.png](img_4.png)

@@ -4,6 +4,7 @@ from aws_cdk import (
     Stack,
     aws_ec2 as ec2,
     aws_eks as eks,
+    aws_iam as iam, CfnOutput,
 )
 from constructs import Construct
 
@@ -40,6 +41,46 @@ class ClusterStack(Stack):
             # vpc=vpc,
             # vpc_subnets=[ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_NAT)]
         )
+
+        # add a sample manifest to the cluster
+        app_name = "my-app-001"
+        app_label = {
+            "app": app_name
+        }
+        deployment = {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {"name": app_name},
+            "spec": {
+                "replicas": 2,
+                "selector": {
+                    "matchLabels": app_label
+                },
+                "template": {
+                    "metadata": {
+                        "labels": app_label
+                    },
+                    "spec": {
+                        "containers": [{
+                            "name": app_name,
+                            "image": "paulbouwer/hello-kubernetes:1.5",
+                            "ports": [{"containerPort": 8080}]
+                        }]
+                    }
+                }
+            }
+        }
+        service = {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {"name": app_name},
+            "spec": {
+                "type": "LoadBalancer",
+                "ports": [{"port": 80, "targetPort": 8080}],
+                "selector": app_label
+            }
+        }
+        cluster.add_manifest("hello-kub", service, deployment)
 
         # # apply a kubernetes manifest to the cluster
         # cluster.add_manifest(
@@ -174,6 +215,20 @@ class ClusterStack(Stack):
             #     kubelet_extra_args="--node-labels foo=bar,goo=far",
             #     aws_api_retry_attempts=5,
             # ),
+        )
+
+        # add service account for fluent-bit
+        service_account: eks.ServiceAccount = cluster.add_service_account("fluent-bit")
+        service_account.add_to_principal_policy(iam.PolicyStatement(
+            actions=["es:ESHttp*"],
+            resources=["*"],  # lax permissions
+            effect=iam.Effect.ALLOW
+        ))
+        # print the IAM role arn for this service account
+        CfnOutput(
+            self,
+            "ServiceAccountIamRole",
+            value=service_account.role.role_arn,
         )
 
         # # add service account - to provide pods with access to aws resources
