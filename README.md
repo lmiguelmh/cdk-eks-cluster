@@ -40,5 +40,6 @@ kubectl get pods
 
 - No se pudo usar kubectl desde local.
     - Se eliminó la versión de kubectl 1.26.3-1.
+    - Se recreó la carpeta ~/.kube/
     - Se probó con la versión 1.27, 1.26, 1.25, 1.24, finalmente la versión [1.23.17](https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.23.md#client-binaries) 
     - ![img_2.png](img_2.png)
