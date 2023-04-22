@@ -2,7 +2,7 @@ from aws_cdk import (
     aws_iam as iam,
     aws_cognito as cognito,
     aws_elasticsearch as elasticsearch,
-    CfnOutput, Stack, CustomResource
+    CfnOutput, Stack, CustomResource, custom_resources,CfnJson
 )
 from constructs import Construct
 
@@ -25,12 +25,14 @@ class ClusterLoggingStack(Stack):
             username_attributes=["email"],
             auto_verified_attributes=["email"],
         )
+
         cognito.CfnUserPoolDomain(
             scope=self,
             id=conf.LOGGING_ES_DOMAIN_USER_POOL_DOMAIN_NAME,
             domain=conf.LOGGING_ES_DOMAIN_USER_POOL_DOMAIN_NAME,
             user_pool_id=user_pool.ref,
         )
+
         identity_pool = cognito.CfnIdentityPool(
             scope=self,
             id=conf.LOGGING_ES_DOMAIN_IDENTITY_POOL_NAME,
@@ -38,6 +40,25 @@ class ClusterLoggingStack(Stack):
             allow_unauthenticated_identities=False,
             cognito_identity_providers=[],
         )
+
+        self._es_limited_user_role = iam.Role(
+            scope=self,
+            id=conf.LOGGING_ES_DOMAIN_LIMITED_USER_ROLE_NAME,
+            role_name=conf.LOGGING_ES_DOMAIN_LIMITED_USER_ROLE_NAME,
+            assumed_by=iam.FederatedPrincipal(
+                federated="cognito-identity.amazonaws.com",
+                conditions={
+                    "StringEquals": {
+                        "cognito-identity.amazonaws.com:aud": identity_pool.ref
+                    },
+                    "ForAnyValue:StringLike": {
+                        "cognito-identity.amazonaws.com:amr": "authenticated"
+                    }
+                },
+                assume_role_action="sts:AssumeRoleWithWebIdentity"
+            )
+        )
+
         self._es_admin_fn_role = iam.Role(
             scope=self,
             id=conf.LOGGING_ES_DOMAIN_ADMIN_FN_ROLE_NAME,
@@ -47,8 +68,9 @@ class ClusterLoggingStack(Stack):
         self._es_admin_fn_role.add_managed_policy(
             iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole")
         )
+
         self._es_admin_user_role = iam.Role(
-            self,
+            scope=self,
             id=conf.LOGGING_ES_DOMAIN_ADMIN_USER_ROLE_NAME,
             role_name=conf.LOGGING_ES_DOMAIN_ADMIN_USER_ROLE_NAME,
             assumed_by=iam.FederatedPrincipal(
@@ -148,12 +170,50 @@ class ClusterLoggingStack(Stack):
             }
         )
 
+        user_pool_clients = custom_resources.AwsCustomResource(
+            scope=self,
+            id=f"ClientIdResource",
+            policy=custom_resources.AwsCustomResourcePolicy.from_sdk_calls(resources=[user_pool.attr_arn]),
+            on_create=custom_resources.AwsSdkCall(
+                service="CognitoIdentityServiceProvider",
+                action="listUserPoolClients",
+                parameters={
+                    "UserPoolId": user_pool.ref
+                },
+                physical_resource_id=custom_resources.PhysicalResourceId.of(f"ClientId-{conf.LOGGING_ES_DOMAIN_USER_POOL_DOMAIN_NAME}")
+            )
+        )
+        user_pool_clients.node.add_dependency(self._es_domain)
+
+        client_id = user_pool_clients.get_response_field("UserPoolClients.0.ClientId")
+        provider_name = f"cognito-idp.{self.region}.amazonaws.com/{user_pool.ref}:{client_id}"
+
+        cognito.CfnIdentityPoolRoleAttachment(
+            scope=self,
+            id=f"UserPoolRoleAttachment",
+            identity_pool_id=identity_pool.ref,
+            roles={
+                "authenticated": self._es_limited_user_role.role_arn
+            },
+            role_mappings=CfnJson(
+                scope=self,
+                id=f"RoleMappingsJson",
+                value={
+                    provider_name: {
+                        "Type": "Token",
+                        "AmbiguousRoleResolution": "AuthenticatedRole"
+                    }
+                }
+            )
+        )
+
         _es_requests = ESRequests(
             scope=self,
             name=conf.LOGGING_ES_DOMAIN_ES_REQUESTS_NAME,
             function_role=self._es_admin_fn_role,
             es_domain_endpoint=self._es_domain.attr_domain_endpoint,
         )
+        self._es_request_function = _es_requests.add_function()
         _es_requests.add_custom_resource(
             all_access_roles=[
                 self._es_admin_fn_role.role_arn,
@@ -163,8 +223,11 @@ class ClusterLoggingStack(Stack):
                 self._es_admin_fn_role.role_arn,
                 self._es_admin_user_role.role_arn,
             ],
-            kibana_user_roles=[],
+            kibana_user_roles=[
+                self._es_limited_user_role.role_arn,
+            ],
         )
+        _es_requests.node.add_dependency(self._es_domain)
 
         CfnOutput(
             self,
