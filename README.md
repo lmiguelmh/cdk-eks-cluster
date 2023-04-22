@@ -4,6 +4,7 @@
 
 - Luis Miguel Mamani Humpiri
 - Carlos Ruiz de la Vega
+- Reynaldo Capia Capia
 
 ## Instrucciones
 
