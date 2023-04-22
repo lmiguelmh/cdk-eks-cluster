@@ -2,11 +2,12 @@ from aws_cdk import (
     aws_iam as iam,
     aws_cognito as cognito,
     aws_elasticsearch as elasticsearch,
-    CfnOutput, Stack, CustomResource, custom_resources,CfnJson
+    CfnOutput, Stack, CustomResource, custom_resources, CfnJson
 )
 from constructs import Construct
 
 from core import conf
+from core.constructs.cognito_user import CognitoUser
 from core.constructs.es_requests import ESRequests
 
 
@@ -228,6 +229,15 @@ class ClusterLoggingStack(Stack):
             ],
         )
         _es_requests.node.add_dependency(self._es_domain)
+
+        cognito_user = CognitoUser(
+            scope=self,
+            id="ESAdminCognitoUser",
+            user_pool=user_pool,
+            username=conf.LOGGING_ES_DOMAIN_DEFAULT_ADMIN_EMAIL,
+            password=conf.LOGGING_ES_DOMAIN_DEFAULT_ADMIN_PASSWORD,
+        )
+        cognito_user.node.add_dependency(self._es_domain)
 
         CfnOutput(
             self,

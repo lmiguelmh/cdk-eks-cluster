@@ -52,3 +52,10 @@ kubectl get pods
 - El despliegue de un manifiesto (service + deployment) falla.
     - Errores de versión de manifiesto. Se corrigió y cambiaron algunos nombres.
     - ![img_4.png](img_4.png)
+
+- Problemas al eliminar el Cluster EKS, al parecer algunas VPCs, IGs y subnets no pueden eliminarse.
+    - Un balanceador de carga creado con kubectl (manualmente) no podía ser eliminado. Se identificó el balanceador y tuvo que ser eliminado manualmente, luego el stack pudo ser eliminado.
+    - ![img_8.png](img_8.png)
+    - ![img_7.png](img_7.png)
+    - ![img_6.png](img_6.png)
+    - ![img_5.png](img_5.png)

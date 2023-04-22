@@ -218,7 +218,10 @@ class ClusterStack(Stack):
         )
 
         # add service account for fluent-bit
-        service_account: eks.ServiceAccount = cluster.add_service_account("fluent-bit")
+        service_account: eks.ServiceAccount = cluster.add_service_account(
+            id="fluent-bit",
+            name="fluent-bit",
+        )
         service_account.add_to_principal_policy(iam.PolicyStatement(
             actions=["es:ESHttp*"],
             resources=["*"],  # lax permissions
