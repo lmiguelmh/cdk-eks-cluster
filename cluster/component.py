@@ -4,6 +4,7 @@ from aws_cdk import (
     Stack,
     aws_ec2 as ec2,
     aws_eks as eks,
+    aws_ssm as ssm,
     aws_iam as iam, CfnOutput,
 )
 from constructs import Construct
@@ -227,11 +228,18 @@ class ClusterStack(Stack):
             resources=["*"],  # lax permissions
             effect=iam.Effect.ALLOW
         ))
+
         # print the IAM role arn for this service account
         CfnOutput(
             self,
             "ServiceAccountIamRole",
             value=service_account.role.role_arn,
+        )
+        ssm.StringParameter(
+            self,
+            conf.CLUSTER_FLUENT_BIT_SERVICE_ACCOUNT_ROLE_ARN_SSM,
+            parameter_name=conf.CLUSTER_FLUENT_BIT_SERVICE_ACCOUNT_ROLE_ARN_SSM,
+            string_value=service_account.role.role_arn,
         )
 
         # # add service account - to provide pods with access to aws resources

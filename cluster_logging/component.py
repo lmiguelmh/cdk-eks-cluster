@@ -1,5 +1,6 @@
 from aws_cdk import (
     aws_iam as iam,
+    aws_ssm as ssm,
     aws_cognito as cognito,
     aws_elasticsearch as elasticsearch,
     CfnOutput, Stack, CustomResource, custom_resources, CfnJson
@@ -208,37 +209,22 @@ class ClusterLoggingStack(Stack):
             )
         )
 
-        _es_requests = ESRequests(
-            scope=self,
-            name=conf.LOGGING_ES_DOMAIN_ES_REQUESTS_NAME,
-            function_role=self._es_admin_fn_role,
-            es_domain_endpoint=self._es_domain.attr_domain_endpoint,
-        )
-        self._es_request_function = _es_requests.add_function()
-        _es_requests.add_custom_resource(
-            all_access_roles=[
-                self._es_admin_fn_role.role_arn,
-                self._es_admin_user_role.role_arn,
-            ],
-            security_manager_roles=[
-                self._es_admin_fn_role.role_arn,
-                self._es_admin_user_role.role_arn,
-            ],
-            kibana_user_roles=[
-                self._es_limited_user_role.role_arn,
-            ],
-        )
-        _es_requests.node.add_dependency(self._es_domain)
-
         cognito_user = CognitoUser(
             scope=self,
             id="ESAdminCognitoUser",
             user_pool=user_pool,
             username=conf.LOGGING_ES_DOMAIN_DEFAULT_ADMIN_EMAIL,
             password=conf.LOGGING_ES_DOMAIN_DEFAULT_ADMIN_PASSWORD,
+            group_name=conf.LOGGING_ES_DOMAIN_USER_POOL_ADMIN_GROUP_NAME,
         )
         cognito_user.node.add_dependency(self._es_domain)
 
+        ssm.StringParameter(
+            self,
+            conf.LOGGING_ES_DOMAIN_ENDPOINT_SSM,
+            parameter_name=conf.LOGGING_ES_DOMAIN_ENDPOINT_SSM,
+            string_value=self._es_domain.attr_domain_endpoint,
+        )
         CfnOutput(
             self,
             'createUserUrl',

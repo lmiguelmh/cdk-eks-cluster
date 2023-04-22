@@ -15,9 +15,13 @@
 cdk deploy
 
 # update kube configuration file with information needed to access the newly created cluster
-aws eks update-kubeconfig --name cdk-eks-cluster-cluster-eks --region us-west-2 --role-arn arn:aws:iam::719602558560:role/cdk-eks-cluster-cluster-cdkeksclusterclustereksMas-1HSZX33QNI10U
+# this is located on the eks cluster stack output
+aws eks update-kubeconfig ...
 
 # test kubectl
+kubectl get all
+
+# beware that resources created by kubectl may have to be deleted manually (ie. load balancers)
 kubectl apply -f pod.yml
 kubectl get pods
 # TODO: configure this
