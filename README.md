@@ -29,6 +29,68 @@ kubectl get pods
 # curl <pod-ip>
 ```
 
+### Configuración EKS Cluster
+
+- La definición del cluster se encuentra en ClusterStack.
+- Se usó CDK para la creación de la infraestructura.
+- La definición del servicio y el despliegue también se encuentra en ClusterStack.
+
+### Configuración de OpenSearch + Fluent Bit
+
+- La definición del cluster se encuentra en ClusterLoggingStack.
+- Se usó CDK para la creación de la infraestructura.
+- Se usó autenticación por Cognito User Pools en vez de un Master password.
+- El mapping de los roles de ES/fluent-bit es realizado automáticamente en el stack `eks-logging-roles`.
+
+```shell
+# create fluent-bit
+# before, edit the file an change the namespace, cluster endpoint and aws region 
+kubectl apply -f fluentbit.yaml
+
+# there should be 3 pods for fluent-bit
+kubectl get pods
+
+# cleanup
+kubectl delete -f fluentbit.yaml
+```
+
+![img_9.png](img_9.png)
+
+![img_10.png](img_10.png)
+
+![img_11.png](img_11.png)
+
+### Configuración de Prometheus + Grafana
+
+```shell
+# install helm
+# helm 3.9+ breaks some packages, awscliv2 should solve this but in my case didn't
+# curl -sSL https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
+# installing helm 3.8.2
+curl -L https://git.io/get_helm.sh | bash -s -- --version v3.8.2
+helm version --short
+helm repo add stable https://charts.helm.sh/stable
+helm search repo stable
+
+# add prometheus repo
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+# add grafana repo
+helm repo add grafana https://grafana.github.io/helm-charts
+
+# install helm
+kubectl create namespace prometheus
+helm install prometheus prometheus-community/prometheus \
+    --namespace prometheus \
+    --set alertmanager.persistentVolume.storageClass="gp2" \
+    --set server.persistentVolume.storageClass="gp2"
+    
+# cleanup
+helm uninstall prometheus --namespace prometheus
+kubectl delete ns prometheus
+```
+
+![img_13.png](img_13.png)
+
 ### Despliegue usando CI/CD
 
 - TODO: PR to dev
@@ -63,3 +125,14 @@ kubectl get pods
     - ![img_7.png](img_7.png)
     - ![img_6.png](img_6.png)
     - ![img_5.png](img_5.png)
+
+- Error al desplegar Prometheus: INSTALLATION FAILED: Kubernetes cluster unreachable: exec plugin: invalid apiVersion "client.authentication.k8s.io/v1alpha1"
+    - Al parecer es un problema de Helm 3.9 + AWS cli v1.
+    - Instalando AWS cli v2 no funcionó (https://github.com/helm/helm/issues/10975#issuecomment-1132139799)
+    - Tuve que revertir y usar la v3.8.2 de Helm.
+    - ![img_12.png](img_12.png)
+
+- El pod de helm se queda en Pending.
+    - No hay logs en `kubectl logs -n prometheus pod/prometheus-server-77df547d88-l8rpn -c prometheus-server`.
+    - Posiblemente el problema sea porque los worker nodes en una subnet privada. 
+    - ![img_14.png](img_14.png)
