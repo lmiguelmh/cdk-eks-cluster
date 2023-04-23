@@ -5,8 +5,10 @@ from aws_cdk import (
     aws_ec2 as ec2,
     aws_eks as eks,
     aws_ssm as ssm,
+    lambda_layer_kubectl_v25 as lambda_layer_kubectl_v25,
     aws_iam as iam, CfnOutput,
 )
+from cdk_ec2_key_pair import KeyPair
 from constructs import Construct
 
 from core import conf
@@ -20,15 +22,24 @@ class ClusterStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # provisiong a cluster
+        #
+        key_pair = KeyPair(
+            self,
+            conf.CLUSTER_SSH_KEY_NAME,
+            name=conf.CLUSTER_SSH_KEY_NAME,
+            resource_prefix=conf.CLUSTER_SSH_KEY_NAME,
+        )
+
+        # provision a cluster
         cluster = eks.Cluster(
             self,
             conf.CLUSTER_EKS_NAME,
             cluster_name=conf.CLUSTER_EKS_NAME,
             version=eks.KubernetesVersion.V1_25,
-            endpoint_access=eks.EndpointAccess.PUBLIC_AND_PRIVATE,  # PUBLIC_AND_PRIVATE by default, doesn't seem secure, PRIVATE
-            default_capacity=2,
-            default_capacity_instance=ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.SMALL),
+            kubectl_layer=lambda_layer_kubectl_v25.KubectlV25Layer(self, "kubectl"),
+            endpoint_access=eks.EndpointAccess.PUBLIC_AND_PRIVATE,
+            default_capacity=0,  # will customize it using an ASG
+            # default_capacity_instance=ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.SMALL),
             alb_controller=eks.AlbControllerOptions(
                 version=eks.AlbControllerVersion.V2_4_1,
             ),
@@ -41,6 +52,35 @@ class ClusterStack(Stack):
             ],
             # vpc=vpc,
             # vpc_subnets=[ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_NAT)]
+            # vpc_subnets=[aws_ec2.SubnetSelection(subnet_type=aws_ec2.SubnetType.PUBLIC)])
+        )
+        # add asg capacity for worker nodes, we can also use node group capacity
+        cluster.add_auto_scaling_group_capacity(
+            conf.CLUSTER_ASG_NAME,
+            auto_scaling_group_name=conf.CLUSTER_ASG_NAME,
+            instance_type=ec2.InstanceType("t3.small"),
+            machine_image_type=eks.MachineImageType.BOTTLEROCKET,  # or AMAZON_LINUX_2
+            min_capacity=1,
+            desired_capacity=1,
+            max_capacity=3,
+            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
+            key_name=key_pair.key_pair_name,
+            # bootstrap options not supported on BOTTLEROCKET
+            # bootstrap_options=eks.BootstrapOptions(
+            #     kubelet_extra_args="--node-labels foo=bar,goo=far",
+            #     aws_api_retry_attempts=5,
+            # ),
+        )
+
+        CfnOutput(
+            self,
+            "OIDC Issuer URL",
+            value=cluster.cluster_open_id_connect_issuer_url,
+        )
+        CfnOutput(
+            self,
+            "OIDC Issuer",
+            value=cluster.cluster_open_id_connect_issuer,
         )
 
         # add a sample manifest to the cluster
@@ -81,7 +121,10 @@ class ClusterStack(Stack):
                 "selector": app_label
             }
         }
-        cluster.add_manifest("hello-kub", service, deployment)
+        manifest = cluster.add_manifest("hello-kub", service, deployment)
+        if cluster.alb_controller:
+            # important to avoid dangling resources
+            manifest.node.add_dependency(cluster.alb_controller)
 
         # # apply a kubernetes manifest to the cluster
         # cluster.add_manifest(
@@ -201,23 +244,6 @@ class ClusterStack(Stack):
         #     ]
         # }
 
-        # add asg capacity, or node group capacity are two distinct ways to add capacity to an EKS cluster (worker nodes)
-        cluster.add_auto_scaling_group_capacity(
-            conf.CLUSTER_ASG_NAME,
-            auto_scaling_group_name=conf.CLUSTER_ASG_NAME,
-            instance_type=ec2.InstanceType("t3.small"),
-            machine_image_type=eks.MachineImageType.BOTTLEROCKET,  # or amazon linux
-            min_capacity=1,
-            desired_capacity=1,
-            max_capacity=3,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
-            # bootstrap options not supported on BOTTLEROCKET
-            # bootstrap_options=eks.BootstrapOptions(
-            #     kubelet_extra_args="--node-labels foo=bar,goo=far",
-            #     aws_api_retry_attempts=5,
-            # ),
-        )
-
         # add service account for fluent-bit
         service_account: eks.ServiceAccount = cluster.add_service_account(
             id="fluent-bit",
@@ -228,8 +254,6 @@ class ClusterStack(Stack):
             resources=["*"],  # lax permissions
             effect=iam.Effect.ALLOW
         ))
-
-        # print the IAM role arn for this service account
         CfnOutput(
             self,
             "ServiceAccountIamRole",
@@ -241,6 +265,37 @@ class ClusterStack(Stack):
             parameter_name=conf.CLUSTER_FLUENT_BIT_SERVICE_ACCOUNT_ROLE_ARN_SSM,
             string_value=service_account.role.role_arn,
         )
+
+        # add service account for EBS CSI according:
+        # https://docs.aws.amazon.com/eks/latest/userguide/managing-ebs-csi.html
+        ebs_csi_service_account: eks.ServiceAccount = cluster.add_service_account(
+            id="ebs-csi",
+            name="ebs-csi",
+        )
+        ebs_csi_service_account.role.add_managed_policy(
+            iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AmazonEBSCSIDriverPolicy")
+        )
+        CfnOutput(
+            self,
+            "EbsCsiServiceAccountIamRole",
+            value=ebs_csi_service_account.role.role_arn,
+        )
+        # # add add-on
+        # eks.CfnAddon(
+        #     self,
+        #     'aws-ebs-csi-driver',
+        #     addon_name='aws-ebs-csi-driver',
+        #     cluster_name=cluster.cluster_name,
+        #     preserve_on_delete=False,
+        #     service_account_role_arn=ebs_csi_service_account.role.role_arn,
+        #     # addon_version='addonVersion',
+        #     # configuration_values='configurationValues',
+        #     # resolve_conflicts='resolveConflicts',
+        #     # tags=[{
+        #     #     key: 'key',
+        #     #     value: 'value',
+        #     # }],
+        # )
 
         # # add service account - to provide pods with access to aws resources
         # service_account = cluster.add_service_account("MyServiceAccount")
