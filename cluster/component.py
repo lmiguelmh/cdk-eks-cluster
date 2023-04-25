@@ -6,7 +6,7 @@ from aws_cdk import (
     aws_eks as eks,
     aws_ssm as ssm,
     lambda_layer_kubectl_v25 as lambda_layer_kubectl_v25,
-    aws_iam as iam, CfnOutput,
+    aws_iam as iam, CfnOutput, CfnJson,
 )
 from cdk_ec2_key_pair import KeyPair
 from constructs import Construct
@@ -50,16 +50,22 @@ class ClusterStack(Stack):
                 eks.ClusterLoggingTypes.CONTROLLER_MANAGER,
                 eks.ClusterLoggingTypes.SCHEDULER,
             ],
+            # masters_role=iam.Role(
+            #     self,
+            #     "EKSClusterRole",
+            #     assumed_by=iam.AccountRootPrincipal(),
+            # )
             # vpc=vpc,
             # vpc_subnets=[ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_NAT)]
             # vpc_subnets=[aws_ec2.SubnetSelection(subnet_type=aws_ec2.SubnetType.PUBLIC)])
         )
+        # cluster.aws_auth.add_masters_role()
         # add asg capacity for worker nodes, we can also use node group capacity
         cluster.add_auto_scaling_group_capacity(
             conf.CLUSTER_ASG_NAME,
             auto_scaling_group_name=conf.CLUSTER_ASG_NAME,
-            instance_type=ec2.InstanceType("t3.small"),
-            machine_image_type=eks.MachineImageType.BOTTLEROCKET,  # or AMAZON_LINUX_2
+            instance_type=ec2.InstanceType("t3.medium"),
+            machine_image_type=eks.MachineImageType.AMAZON_LINUX_2,  # or BOTTLEROCKET
             min_capacity=1,
             desired_capacity=1,
             max_capacity=3,
@@ -71,6 +77,54 @@ class ClusterStack(Stack):
             #     aws_api_retry_attempts=5,
             # ),
         )
+        # # add node group capacity, here we can specify a role
+        # lt = ec2.CfnLaunchTemplate(
+        #     self,
+        #     "SSMLaunchTemplate",
+        #     launch_template_data={
+        #         "instanceType": "t3.small",
+        #         # "tagSpecifications": [
+        #         #     {
+        #         #         "resourceType": "instance",
+        #         #         "tags": [
+        #         #             {"key": "Name", "value": f"app-{props['nameSuffix']}"},
+        #         #             {"key": "Environment", "value": props["nameSuffix"]},
+        #         #         ],
+        #         #     },
+        #         #     {
+        #         #         "resourceType": "volume",
+        #         #         "tags": [{"key": "Environment", "value": props["nameSuffix"]}],
+        #         #     },
+        #         # ],
+        #     },
+        # )
+        # node_role = iam.Role(
+        #     self,
+        #     "EksNodeRole",
+        #     assumed_by=iam.ServicePrincipal("ec2.amazonaws.com"),
+        # )
+        # node_role.add_managed_policy(
+        #     iam.ManagedPolicy.from_aws_managed_policy_name("AmazonEKSWorkerNodePolicy")
+        # )
+        # node_role.add_managed_policy(
+        #     iam.ManagedPolicy.from_aws_managed_policy_name(
+        #         "AmazonEC2ContainerRegistryReadOnly"
+        #     )
+        # )
+        # node_role.add_managed_policy(
+        #     iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSSMManagedInstanceCore")
+        # )
+        # cluster.add_nodegroup_capacity(
+        #     "app-ng",
+        #     launch_template_spec={
+        #         "id": lt.ref,
+        #         "version": lt.attr_latest_version_number,
+        #     },
+        #     min_size=1,
+        #     max_size=2,
+        #     ami_type=eks.NodegroupAmiType.AL2_X86_64,
+        #     node_role=node_role,
+        # )
 
         CfnOutput(
             self,
@@ -268,9 +322,11 @@ class ClusterStack(Stack):
 
         # add service account for EBS CSI according:
         # https://docs.aws.amazon.com/eks/latest/userguide/managing-ebs-csi.html
+        # https://docs.aws.amazon.com/eks/latest/userguide/eks-add-ons.html
         ebs_csi_service_account: eks.ServiceAccount = cluster.add_service_account(
             id="ebs-csi",
             name="ebs-csi",
+            namespace="kube-system",  # Important!
         )
         ebs_csi_service_account.role.add_managed_policy(
             iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AmazonEBSCSIDriverPolicy")
@@ -280,21 +336,59 @@ class ClusterStack(Stack):
             "EbsCsiServiceAccountIamRole",
             value=ebs_csi_service_account.role.role_arn,
         )
-        # # add add-on
-        # eks.CfnAddon(
+        # add add-on
+        eks.CfnAddon(
+            self,
+            'aws-ebs-csi-driver',
+            addon_name='aws-ebs-csi-driver',
+            cluster_name=cluster.cluster_name,
+            preserve_on_delete=False,
+            service_account_role_arn=ebs_csi_service_account.role.role_arn,
+            # addon_version='addonVersion',
+            # configuration_values='configurationValues',
+            # resolve_conflicts='resolveConflicts',
+            # tags=[{
+            #     key: 'key',
+            #     value: 'value',
+            # }],
+        )
+
+        # aud = f"{cluster.cluster_open_id_connect_issuer}:aud"
+        # sub = f"{cluster.cluster_open_id_connect_issuer}:sub"
+        # conditions = CfnJson(self, "awsNodeOIDCCondition", value={
+        #     aud: "sts.amazonaws.com",
+        #     sub: "system:serviceaccount:kube-system:aws-node",
+        # })
+        # awsNodeIamRole = iam.Role(
         #     self,
-        #     'aws-ebs-csi-driver',
-        #     addon_name='aws-ebs-csi-driver',
-        #     cluster_name=cluster.cluster_name,
-        #     preserve_on_delete=False,
-        #     service_account_role_arn=ebs_csi_service_account.role.role_arn,
-        #     # addon_version='addonVersion',
-        #     # configuration_values='configurationValues',
-        #     # resolve_conflicts='resolveConflicts',
-        #     # tags=[{
-        #     #     key: 'key',
-        #     #     value: 'value',
-        #     # }],
+        #     "awsNodeIamRole",
+        #     assumed_by=iam.WebIdentityPrincipal(
+        #         f"arn:aws:iam::{conf.AWS_ACCOUNT_ID}:oidc-provider/{cluster.cluster_open_id_connect_issuer}"
+        #     ).with_conditions({
+        #         "StringEquals": conditions,
+        #     })
+        # )
+        # awsNodeIamRole.add_managed_policy(
+        #     iam.ManagedPolicy.from_aws_managed_policy_name("AmazonEKS_CNI_Policy")
+        # )
+        # awsNodeCniPatch = eks.KubernetesPatch(
+        #     self,
+        #     "serviceAccount/aws-node",
+        #     cluster=cluster,
+        #     resource_name="serviceAccount/aws-node",
+        #     resource_namespace="kube-system",
+        #     apply_patch={
+        #         "metadata": {
+        #             "annotations": {
+        #                 "eks.amazonaws.com/role-arn": awsNodeIamRole.role_arn
+        #             }
+        #         }
+        #     },
+        #     restore_patch={
+        #         "metadata": {
+        #             "annotations": {}
+        #         }
+        #     }
         # )
 
         # # add service account - to provide pods with access to aws resources

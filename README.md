@@ -43,7 +43,10 @@ kubectl get pods
 - La definición del cluster se encuentra en [ClusterLoggingStack](cluster_logging/component.py).
 - Se usó CDK para la creación de la infraestructura.
 - Se usó autenticación por Cognito User Pools en vez de un Master password.
+- Así mismo, se creó un serviceAccount para permitir que los pods puedan acceder al API de ES.
+    - ![img_23.png](img_23.png)
 - El mapping de los roles de ES/fluent-bit se encuentra en [ClusterLoggingRolesStack](cluster_logging_roles/component.py).
+    - Importante. Incluir el rol creado en el paso anterior. 
 
 ```shell
 # create fluent-bit
@@ -87,8 +90,24 @@ helm repo add grafana https://grafana.github.io/helm-charts
 
 # test EBS CSI driver
 # by creating a StorageClass, a PersistentVolumeClaim (PVC) and a pod
-kubectl apply -f dynamic-provisioning/
-kubectl delete -f dynamic-provisioning/
+# all at once
+#kubectl apply -f dynamic-provisioning/
+#kubectl get pods
+#kubectl delete -f dynamic-provisioning/
+# or step by step
+kubectl apply -f gp3-sc.yaml
+kubectl apply -f pvc-csi.yaml
+kubectl apply -f pod-csi.yaml
+# pod status should be RUNNING after 60s
+kubectl get pod
+# pvc status should be BOUND
+kubectl get pvc
+# check more details of PVC
+kubectl describe pvc
+# cleanup
+kubectl delete -f pod-csi.yaml
+kubectl delete -f pvc-csi.yaml
+kubectl delete -f gp3-sc.yaml
 
 # install helm
 kubectl create namespace prometheus
@@ -160,13 +179,24 @@ kubectl delete ns prometheus
     - Se instaló aws-ebs-csi-driver, ahora todos los pods en _Pending_.
         - ![img_19.png](img_19.png)
     - Se siguió el siguiente post para [habilitar el almacenamiento persistente en EKS](https://repost.aws/knowledge-center/eks-persistent-storage)
-    - Se encontró un problema al crear el ServiceAccount y realizar el despliegue. Solucionado al desinstalar `aws-ebs-csi-driver`, instalado previamente. 
+    - Se encontró un problema al crear el ServiceAccount y realizar el despliegue. Solucionado al desinstalar `aws-ebs-csi-driver`, instalado previamente.
         - ![img_20.png](img_20.png)
     - Se intentó la configuración del despliegue usando el add-on de EKS para el driver EBS CSI. Pero el pod de prueba de AWS se queda en _Pending_.
         - ![img_21.png](img_21.png)
     - Se intentó la [instalación del driver EBS CSI usando helm](https://github.com/kubernetes-sigs/aws-ebs-csi-driver/blob/master/docs/install.md)
         - ![img_22.png](img_22.png)
-        - See below paste of describe pods #1 
+        - See below paste #1
+    - Se volvió a reintentar, esta vez siquiendo este [blog de AWS para usar el EBS CSI driver como un add-on de EKS](https://aws.amazon.com/blogs/containers/amazon-ebs-csi-driver-is-now-generally-available-in-amazon-eks-add-ons/)
+        - Repitiendo los pasos se encontró que el Service Account fue creado en el namespace `default` cuando debió ser creado en el namespace `kube-system`.
+        - Así mismo se encontró algunas otras herramientas para diagnosticar los componentes del add-on:
+          - `kubectl get deploy,ds -l=app.kubernetes.io/name=aws-ebs-csi-driver -n kube-system`
+          - `kubectl get po -n kube-system -l 'app in (ebs-csi-controller,ebs-csi-node)'`
+          - `kubectl get -n kube-system pod/ebs-csi-controller-CHANGE_ME -o jsonpath='{.spec.containers[*].name}'`
+        - El problema persiste, pero ahora al hacer describe del PersistentVolumeClaim (PVC) obtenemos varios errores.
+          - ![img_24.png](img_24.png)
+        - Redesplegando el stack, para acelerar las cosas se puede usar otra región para el despliegue, y no esperar a que el cluster se elimine por completo.
+        - Problema persiste.
+        - Creando el cluster con kubectl según el blog, el PVC llega a estado BOUND, y el pod a RUNNING! El problema debe estar en la forma en cómo CDK crea el cluster EKS.
 
 ### Paste #1 - details of describe pods for EBS CSI using helm
 
