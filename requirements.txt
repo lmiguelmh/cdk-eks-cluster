@@ -3,5 +3,5 @@ constructs>=10.0.0,<11.0.0
 python-dotenv[cli]
 cdk-ec2-key-pair
 opensearch-py
-cdk-ec2-key-pair
 aws-cdk.lambda-layer-kubectl-v25
+varname

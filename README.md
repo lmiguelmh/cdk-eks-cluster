@@ -158,9 +158,12 @@ eksctl delete addon --name aws-ebs-csi-driver --cluster ebs-demo-cluster
 ![img_26.png](img_26.png)
 ![img_27.png](img_27.png)
 
-### Despliegue usando CI/CD
+### Despliegue usando un CI/CD pipeline
 
-- TODO: PR to dev
+- Para generar la conexión a Github ir a
+    - https://us-east-1.console.aws.amazon.com/codesuite/settings/connections
+    - ![img_28.png](img_28.png)
+    - ![img_29.png](img_29.png)
 
 ## Problemas
 
