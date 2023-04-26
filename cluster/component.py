@@ -1,20 +1,14 @@
-from pathlib import Path
-
 from aws_cdk import (
     Stack,
     aws_ec2 as ec2,
     aws_eks as eks,
     aws_ssm as ssm,
     lambda_layer_kubectl_v25 as lambda_layer_kubectl_v25,
-    aws_iam as iam, CfnOutput, CfnJson,
-)
+    aws_iam as iam, CfnOutput, )
 from cdk_ec2_key_pair import KeyPair
 from constructs import Construct
 
 from core import conf
-from core.constructs.admin_user import AdminUser
-from core.constructs.bastion import Bastion
-from core.constructs.vpc import VPC
 
 
 class ClusterStack(Stack):
@@ -29,6 +23,25 @@ class ClusterStack(Stack):
             name=conf.CLUSTER_SSH_KEY_NAME,
             resource_prefix=conf.CLUSTER_SSH_KEY_NAME,
         )
+
+        # https://dev.to/vumdao/using-iam-service-account-instead-of-instance-profile-for-eks-pods-262p
+        # EKS Admin role
+        # statement = EksWorkerRoleStatements(self.acc_id)
+        # eks_admin_role = iam.Role(
+        #     self, 'EKSMasterRole', role_name='eks-admin-role', assumed_by=iam.ServicePrincipal("ec2.amazonaws.com")
+        # )
+        # eks_admin_role.add_managed_policy(iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3ReadOnlyAccess"))
+        # eks_admin_role.add_managed_policy(iam.ManagedPolicy.from_aws_managed_policy_name("IAMFullAccess"))
+        # eks_admin_role.add_to_policy(statement.admin_statement())
+
+        # # EKS Node Role
+        # node_role = iam.Role(
+        #     self, "EKSNodeRole", role_name='eks-node-role', assumed_by=iam.ServicePrincipal("eks.amazonaws.com")
+        # )
+        # node_role.add_managed_policy(iam.ManagedPolicy.from_aws_managed_policy_name("AmazonEKSClusterPolicy"))
+        # node_role.add_managed_policy(iam.ManagedPolicy.from_aws_managed_policy_name("AmazonEKSWorkerNodePolicy"))
+        # node_role.add_managed_policy(iam.ManagedPolicy.from_aws_managed_policy_name("AmazonEC2ContainerRegistryReadOnly"))
+        # node_role.add_managed_policy(iam.ManagedPolicy.from_aws_managed_policy_name("AmazonEKSServicePolicy"))
 
         # provision a cluster
         cluster = eks.Cluster(
@@ -50,6 +63,7 @@ class ClusterStack(Stack):
                 eks.ClusterLoggingTypes.CONTROLLER_MANAGER,
                 eks.ClusterLoggingTypes.SCHEDULER,
             ],
+            # role=node_role,
             # masters_role=iam.Role(
             #     self,
             #     "EKSClusterRole",
@@ -77,6 +91,25 @@ class ClusterStack(Stack):
             #     aws_api_retry_attempts=5,
             # ),
         )
+
+        # Worker Role
+        # worker_role = iam.Role(self, "EKSWorkerRole", role_name='eks-worker-role',
+        #                        assumed_by=iam.ServicePrincipal("ec2.amazonaws.com"))
+        # attached_policy = ['AmazonEC2ContainerRegistryReadOnly', 'AmazonEKSWorkerNodePolicy']
+        # for policy in attached_policy:
+        #     worker_role.add_managed_policy(iam.ManagedPolicy.from_aws_managed_policy_name(policy))
+        # worker_role.add_to_policy(statement.eks_cni())
+        # cluster.add_nodegroup_capacity(
+        #     conf.CLUSTER_NG_NAME,
+        #     nodegroup_name=conf.CLUSTER_NG_NAME,
+        #     instance_types=[ec2.InstanceType("t3.medium")],
+        #     min_size=1,
+        #     max_size=3,
+        #     disk_size=20,
+        #     # ami_type=eks.NodegroupAmiType.AL2_X86_64,
+        #     # labels={"foo": "bar"},
+        #     node_role=node_role,
+        # )
         # # add node group capacity, here we can specify a role
         # lt = ec2.CfnLaunchTemplate(
         #     self,
