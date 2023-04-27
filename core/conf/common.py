@@ -37,3 +37,4 @@ PIPELINE_WORKLOAD_NAME = f"{PIPELINE_STACK_NAME}-workload"
 PIPELINE_GITHUB_REPOSITORY = ""  # to be defined on each environment
 PIPELINE_GITHUB_BRANCH = ""  # to be defined on each environment
 PIPELINE_GITHUB_CONNECTION_ARN = ""  # to be defined on each environment
+PIPELINE_ROLE_NAME = f"{PIPELINE_STACK_NAME}-role"

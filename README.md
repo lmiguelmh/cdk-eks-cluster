@@ -8,11 +8,14 @@
 
 ## Instrucciones
 
-### Despliegue local
+El proyecto CDK para el aprovisionamiento del nodo bastión se encuentra en [cdk-bastion](https://github.com/lmiguelmh/cdk-bastion). 
+
+### Despliegue desde bastión
 
 ```shell
 # first, install and configure CDKv2, kubectl 1.23
-cdk deploy
+# here we deploy the pipeline, but we can also deploy the other stacks
+cdk deploy eks-toolchain
 
 # update kube configuration file with information needed to access the newly created cluster
 # this is located on the eks cluster stack output
