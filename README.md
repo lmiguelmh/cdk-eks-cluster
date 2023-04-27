@@ -1,5 +1,7 @@
 # Proyecto Integrador DevOps 2203
 
+El [repositorio del proyecto se encuentra aquí](https://github.com/lmiguelmh/cdk-eks-cluster).
+
 ## Grupo 7 - DevOps2203
 
 - Luis Miguel Mamani Humpiri
