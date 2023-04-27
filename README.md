@@ -24,9 +24,7 @@ kubectl get all
 # beware that resources created by kubectl may have to be deleted manually (ie. load balancers)
 kubectl apply -f pod.yml
 kubectl get pods
-# TODO: configure this
-# kubectl port-forward nginx-pod 8080:80 --address 0.0.0.0
-# curl <pod-ip>
+kubectl delete -f pod.yml
 ```
 
 ### Configuración EKS Cluster
@@ -164,6 +162,7 @@ eksctl delete addon --name aws-ebs-csi-driver --cluster ebs-demo-cluster
     - https://us-east-1.console.aws.amazon.com/codesuite/settings/connections
     - ![img_28.png](img_28.png)
     - ![img_29.png](img_29.png)
+    - ![img_30.png](img_30.png)
 
 ## Problemas
 

@@ -59,7 +59,7 @@ class ESRequests(Construct):
         return _function
 
     def add_function(self):
-        # Utility lambda to make Opensearch admin requests
+        # add lambda to proxy requests to ES admin API
         return self._get_function(
             function_name="es_request",
             function_role=self._function_role,
@@ -75,7 +75,7 @@ class ESRequests(Construct):
             security_manager_roles: Optional[List[str]] = None,
             kibana_user_roles: Optional[List[str]] = None,
     ):
-        # custom lambda specially designed to be called from custom resources, to make Opensearch admin requests
+        # add lambda provider for custom resources to proxy requests to ES admin API
         _provider_function = self._get_function(
             function_name="es_request_provider",
             function_role=self._function_role,

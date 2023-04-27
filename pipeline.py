@@ -65,15 +65,15 @@ class PipelineStack(cdk.Stack):
             synth=synth,
         )
 
-        # # add deployment
-        # stage = Stage(
-        #     scope=code_pipeline,
-        #     id="Deploy",
-        #     env=target_aws_env,
-        # )
-        # Workload(
-        #     scope=stage,
-        #     construct_id=conf.PIPELINE_WORKLOAD_NAME,
-        #     aws_env=target_aws_env,
-        # )
-        # code_pipeline.add_stage(stage)
+        # add deployment
+        stage = Stage(
+            scope=code_pipeline,
+            id="Deploy",
+            env=target_aws_env,
+        )
+        Workload(
+            scope=stage,
+            construct_id=conf.PIPELINE_WORKLOAD_NAME,
+            aws_env=target_aws_env,
+        )
+        code_pipeline.add_stage(stage)

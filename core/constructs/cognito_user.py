@@ -9,6 +9,9 @@ from constructs import Construct
 
 
 class CognitoUser(Construct):
+    """
+    this is an adaptation from https://github.com/awesome-cdk/cdk-userpool-user
+    """
 
     def __init__(
             self,
@@ -23,7 +26,7 @@ class CognitoUser(Construct):
 
         user_pool_id = user_pool.ref
 
-        # Create the user inside the Cognito user pool using Lambda backed AWS Custom resource
+        # create the user using an AWS Custom resource
         admin_create_user = AwsCustomResource(
             self,
             "AwsCustomResource-CreateUser",
@@ -49,9 +52,7 @@ class CognitoUser(Construct):
             policy=AwsCustomResourcePolicy.from_sdk_calls(resources=AwsCustomResourcePolicy.ANY_RESOURCE),
             install_latest_aws_sdk=True,
         )
-
-        # Force the password for the user, because by default when new users are created
-        # they are in FORCE_PASSWORD_CHANGE status. The newly created user has no way to change it though
+        # force user password
         admin_set_user_password = AwsCustomResource(
             self,
             "AwsCustomResource-ForcePassword",
@@ -71,7 +72,6 @@ class CognitoUser(Construct):
         )
         admin_set_user_password.node.add_dependency(admin_create_user)
 
-        # If a Group Name is provided, also add the user to this Cognito UserPool Group
         if group_name:
             user_to_group_attachment = CfnUserPoolUserToGroupAttachment(
                 self,
