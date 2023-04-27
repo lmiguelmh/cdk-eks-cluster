@@ -14,48 +14,48 @@ class ClusterLoggingRolesStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        _es_admin_fn_role = iam.Role.from_role_name(
+        es_admin_fn_role = iam.Role.from_role_name(
             self,
             id=conf.LOGGING_ES_DOMAIN_ADMIN_FN_ROLE_NAME,
             role_name=conf.LOGGING_ES_DOMAIN_ADMIN_FN_ROLE_NAME,
         )
-        _es_admin_user_role = iam.Role.from_role_name(
+        es_admin_user_role = iam.Role.from_role_name(
             self,
             id=conf.LOGGING_ES_DOMAIN_ADMIN_USER_ROLE_NAME,
             role_name=conf.LOGGING_ES_DOMAIN_ADMIN_USER_ROLE_NAME,
         )
-        _es_limited_user_role = iam.Role.from_role_name(
+        es_limited_user_role = iam.Role.from_role_name(
             self,
             id=conf.LOGGING_ES_DOMAIN_LIMITED_USER_ROLE_NAME,
             role_name=conf.LOGGING_ES_DOMAIN_LIMITED_USER_ROLE_NAME,
         )
-        _es_domain_endpoint = ssm.StringParameter.value_for_string_parameter(
+        es_domain_endpoint = ssm.StringParameter.value_for_string_parameter(
             self,
             conf.LOGGING_ES_DOMAIN_ENDPOINT_SSM
         )
-        _cluster_fluent_bit_service_account_role_arn = ssm.StringParameter.value_for_string_parameter(
+        cluster_fluent_bit_service_account_role_arn = ssm.StringParameter.value_for_string_parameter(
             self,
             conf.CLUSTER_FLUENT_BIT_SERVICE_ACCOUNT_ROLE_ARN_SSM
         )
 
-        _es_requests = ESRequests(
+        es_requests = ESRequests(
             scope=self,
             name=conf.LOGGING_ES_DOMAIN_ES_REQUESTS_NAME,
-            function_role=_es_admin_fn_role,
-            es_domain_endpoint=_es_domain_endpoint,
+            function_role=es_admin_fn_role,
+            es_domain_endpoint=es_domain_endpoint,
         )
-        self._es_request_function = _es_requests.add_function()
-        _es_requests.add_custom_resource(
+        es_requests.add_function()
+        es_requests.add_custom_resource(
             all_access_roles=[
-                _es_admin_fn_role.role_arn,
-                _es_admin_user_role.role_arn,
-                _cluster_fluent_bit_service_account_role_arn,
+                es_admin_fn_role.role_arn,
+                es_admin_user_role.role_arn,
+                cluster_fluent_bit_service_account_role_arn,
             ],
             security_manager_roles=[
-                _es_admin_fn_role.role_arn,
-                _es_admin_user_role.role_arn,
+                es_admin_fn_role.role_arn,
+                es_admin_user_role.role_arn,
             ],
             kibana_user_roles=[
-                _es_limited_user_role.role_arn,
+                es_limited_user_role.role_arn,
             ],
         )
