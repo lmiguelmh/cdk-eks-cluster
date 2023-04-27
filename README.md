@@ -10,31 +10,68 @@
 
 El proyecto CDK para el aprovisionamiento del nodo bastión se encuentra en [cdk-bastion](https://github.com/lmiguelmh/cdk-bastion). 
 
+
 ### Despliegue desde bastión
 
-```shell
-# first, install and configure CDKv2, kubectl 1.23
-# here we deploy the pipeline, but we can also deploy the other stacks
-cdk deploy eks-toolchain
+Desde bastión sólo es necesario desplegar el pipeline. Por defecto, el pipeline será disparado por cambios en la rama definida en `core.common.PIPELINE_GITHUB_BRANCH`.
+Antes de realizar el despliegue se requiere [acceder a la consola y configurar la conexión a Github aquí](https://us-east-1.console.aws.amazon.com/codesuite/settings/connections).
 
-# update kube configuration file with information needed to access the newly created cluster
-# this is located on the eks cluster stack output
+![img_28.png](img_28.png)
+
+![img_29.png](img_29.png)
+
+Al finalizar, completar la información en el archivo de configuración `core.conf.{ENV}`. 
+
+```shell
+# set the environment/configuration
+# on this case we will use the configuration defined on `core.conf.common` and `core.conf.dev`
+export ENV=dev
+
+# deploy the pipeline
+cdk deploy eks-toolchain
+```
+
+
+### Despliegue desde local
+
+El despliegue desde local permite el desarrollo ágil y el despliegue de uno o varios stacks sin necesidad de desplegar toda la aplicación.
+
+```shell
+# set the environment/configuration
+export ENV=sandbox
+
+# here we deploy the EKS cluster
+cdk deploy eks-cluster
+
+# update kube configuration to access the EKS cluster
+# run the command located on the output of ClusterStack
 aws eks update-kubeconfig ...
 
 # test kubectl
 kubectl get all
 
-# beware that resources created by kubectl may have to be deleted manually (ie. load balancers)
+# beware that resources created by kubectl need to be deleted manually (ie. load balancers)
 kubectl apply -f pod.yml
 kubectl get pods
 kubectl delete -f pod.yml
 ```
 
-### Configuración EKS Cluster
+
+### Despliegue desde pipeline
+
+El despliegue desde el pipeline se dispara automáticamente cuando se realizan cambios en la rama configurada. En entorno `dev` la rama configurada es `dev`. 
+
+![img_30.png](img_30.png)
+![img_31.png](img_31.png)
+![img_32.png](img_32.png)
+
+### Configuración del Cluster EKS
 
 - La definición del cluster se encuentra en [ClusterStack](cluster/component.py).
 - Se usó CDK para la creación de la infraestructura.
-- La definición del servicio y el despliegue también se encuentra en ClusterStack.
+    - El aprovisionamiento de los nodos se realiza con un ASG.
+    - Otros recursos son aprovisionados 
+- La definición del servicio y el despliegue de la aplicación de ejemplo también se encuentra en [ClusterStack](cluster/component.py).
 
 ![img_15.png](img_15.png)
 ![img_16.png](img_16.png)
@@ -158,14 +195,6 @@ eksctl delete addon --name aws-ebs-csi-driver --cluster ebs-demo-cluster
 ![img_25.png](img_25.png)
 ![img_26.png](img_26.png)
 ![img_27.png](img_27.png)
-
-### Despliegue usando un CI/CD pipeline
-
-- Para generar la conexión a Github ir a
-    - https://us-east-1.console.aws.amazon.com/codesuite/settings/connections
-    - ![img_28.png](img_28.png)
-    - ![img_29.png](img_29.png)
-    - ![img_30.png](img_30.png)
 
 ## Problemas
 
