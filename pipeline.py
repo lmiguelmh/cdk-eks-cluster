@@ -5,6 +5,7 @@ from aws_cdk import (
     aws_codepipeline as codepipeline,
     pipelines,
     aws_s3 as s3,
+    aws_iam as iam,
     Stage
 )
 from constructs import Construct
@@ -39,8 +40,27 @@ class PipelineStack(cdk.Stack):
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             )
         )
+        pipeline_role = iam.Role(
+            pipeline,
+            conf.PIPELINE_ROLE_NAME,
+            role_name=conf.PIPELINE_ROLE_NAME,
+            assumed_by=iam.ServicePrincipal("codebuild.amazonaws.com"),
+        )
+        pipeline_role.attach_inline_policy(
+            iam.Policy(
+                id="FullAccessPolicy",
+                scope=pipeline,
+                # TODO reduce permissions
+                statements=[iam.PolicyStatement(
+                    resources=["*"],
+                    actions=["*"],
+                    effect=iam.Effect.ALLOW,
+                )]
+            )
+        )
         synth = pipelines.CodeBuildStep(
             id="Synth",
+            role=pipeline_role,
             input=pipelines.CodePipelineSource.connection(
                 repo_string=conf.PIPELINE_GITHUB_REPOSITORY,
                 branch=conf.PIPELINE_GITHUB_BRANCH,
