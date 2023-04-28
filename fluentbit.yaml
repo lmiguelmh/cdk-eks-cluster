@@ -21,13 +21,13 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: fluent-bit
-  namespace: default
+  namespace: logging
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: fluent-bit-config
-  namespace: default
+  namespace: logging
   labels:
     k8s-app: fluent-bit
 data:
@@ -75,11 +75,11 @@ data:
     [OUTPUT]
         Name            es
         Match           *
-        Host            search-eks-logging-es-domain-007-7hikflysbei4dcobyxjazagajm.us-west-2.es.amazonaws.com
+        Host            ${ES_ENDPOINT}
         Port            443
         TLS             On
         AWS_Auth        On
-        AWS_Region      us-west-2
+        AWS_Region      ${AWS_REGION}
         Retry_Limit     6
 
   parsers.conf: |
@@ -133,9 +133,9 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: fluent-bit
-  namespace: default
+  namespace: logging
   labels:
-    k8s-app: fluent-bit-default
+    k8s-app: fluent-bit-logging
     version: v1
     kubernetes.io/cluster-service: "true"
 

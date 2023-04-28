@@ -18,14 +18,14 @@ class Workload(Construct):
     ):
         super().__init__(scope, construct_id)
 
-        _cluster = ClusterStack(
+        self._cluster = ClusterStack(
             scope,
             construct_id=conf.CLUSTER_STACK_NAME,
             stack_name=conf.CLUSTER_STACK_NAME,
             env=aws_env,
         )
 
-        _cluster_logging = ClusterLoggingStack(
+        self._cluster_logging = ClusterLoggingStack(
             scope,
             construct_id=conf.LOGGING_STACK_NAME,
             stack_name=conf.LOGGING_STACK_NAME,
@@ -38,5 +38,13 @@ class Workload(Construct):
             stack_name=conf.CLUSTER_LOGGING_ROLES_STACK_NAME,
             env=aws_env,
         )
-        _cluster_logging_roles.add_dependency(_cluster)
-        _cluster_logging_roles.add_dependency(_cluster_logging)
+        _cluster_logging_roles.add_dependency(self._cluster)
+        _cluster_logging_roles.add_dependency(self._cluster_logging)
+
+    @property
+    def cluster_logging(self) -> ClusterLoggingStack:
+        return self._cluster_logging
+
+    @property
+    def cluster(self) -> ClusterStack:
+        return self._cluster
