@@ -91,9 +91,29 @@ class PipelineStack(cdk.Stack):
             id="Deploy",
             env=target_aws_env,
         )
-        Workload(
+        workload = Workload(
             scope=stage,
             construct_id=conf.PIPELINE_WORKLOAD_NAME,
             aws_env=target_aws_env,
         )
-        code_pipeline.add_stage(stage)
+        stage_deployment = code_pipeline.add_stage(stage)
+
+        # add post-deployment steps
+        deploy_step = pipelines.CodeBuildStep(
+            "AppDeploy",
+            env_from_cfn_outputs={
+                "EKS_UPDATE_KUBECONFIG": workload.cluster.eks_update_kubeconfig_cfn_output,
+                "ES_ENDPOINT": workload.cluster_logging.es_domain_endpoint_cfn_output,
+                # AWS_REGION is already defined on the environment
+            },
+            role=pipeline_role,
+            commands=[
+                "rm -r ~/.kube && mkdir -p ~/.kube",
+                "$($EKS_UPDATE_KUBECONFIG)",
+                # install fluent-bit
+                "cat fluentbit.yaml | envsubst > fluentbit.yaml",
+                "kubectl apply -f fluentbit.yaml",
+                "kubectl --namespace=logging get pods",
+            ]
+        )
+        stage_deployment.add_post(deploy_step)

@@ -4,7 +4,7 @@ from aws_cdk import (
     aws_eks as eks,
     aws_ssm as ssm,
     lambda_layer_kubectl_v25 as lambda_layer_kubectl_v25,
-    aws_iam as iam, CfnOutput, )
+    aws_iam as iam, CfnOutput, Fn, )
 from cdk_ec2_key_pair import KeyPair
 from constructs import Construct
 
@@ -61,6 +61,7 @@ class ClusterStack(Stack):
         app_label = {
             "app": app_name
         }
+
         deployment = {
             "apiVersion": "apps/v1",
             "kind": "Deployment",
@@ -140,3 +141,19 @@ class ClusterStack(Stack):
             preserve_on_delete=False,
             service_account_role_arn=ebs_csi_service_account.role.role_arn,
         )
+
+        self._eks_update_kubeconfig_cfn_output = CfnOutput(
+            self,
+            "EksUpdateKubeconfig",
+            description="Update kubeconfig command",
+            value=Fn.join("", [
+                "aws eks update-kubeconfig --name ",
+                cluster.cluster_name,
+                " --role-arn ",
+                cluster.admin_role.role_arn,
+            ]),
+        )
+
+    @property
+    def eks_update_kubeconfig_cfn_output(self) -> CfnOutput:
+        return self._eks_update_kubeconfig_cfn_output

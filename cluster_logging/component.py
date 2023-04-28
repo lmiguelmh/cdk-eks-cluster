@@ -235,3 +235,13 @@ class ClusterLoggingStack(Stack):
             description="ES Kibana URL",
             value=f"https://{es_domain.attr_domain_endpoint}/_plugin/kibana/"
         )
+        self._es_domain_endpoint_cfn_output = CfnOutput(
+            self,
+            'esDomainName',
+            description="ES Domain Endpoint",
+            value=es_domain.attr_domain_endpoint,
+        )
+
+    @property
+    def es_domain_endpoint_cfn_output(self) -> CfnOutput:
+        return self._es_domain_endpoint_cfn_output
