@@ -104,6 +104,7 @@ class ClusterStack(Stack):
         service_account: eks.ServiceAccount = cluster.add_service_account(
             id="fluent-bit",
             name="fluent-bit",
+            namespace="logging",  # fluent-bit.yml uses this namespace
         )
         service_account.add_to_principal_policy(iam.PolicyStatement(
             actions=["es:ESHttp*"],
@@ -146,10 +147,13 @@ class ClusterStack(Stack):
             self,
             "EksUpdateKubeconfig",
             description="Update kubeconfig command",
-            value=Fn.join("", [
-                "aws eks update-kubeconfig --name ",
+            value=Fn.join(" ", [
+                "aws eks update-kubeconfig",
+                "--region",
+                self.region,
+                "--name",
                 cluster.cluster_name,
-                " --role-arn ",
+                "--role-arn",
                 cluster.admin_role.role_arn,
             ]),
         )
