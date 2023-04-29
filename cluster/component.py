@@ -101,6 +101,13 @@ class ClusterStack(Stack):
             manifest.node.add_dependency(cluster.alb_controller)
 
         # add service account for fluent-bit
+        namespace = cluster.add_manifest(
+            "logging-namespace",
+            {
+                "apiVersion": "v1",
+                "kind": "Namespace",
+            }
+        )
         service_account: eks.ServiceAccount = cluster.add_service_account(
             id="fluent-bit",
             name="fluent-bit",
@@ -111,6 +118,7 @@ class ClusterStack(Stack):
             resources=["*"],  # TODO point to the ES cluster arn
             effect=iam.Effect.ALLOW
         ))
+        service_account.node.add_dependency(namespace)
         CfnOutput(
             self,
             "ServiceAccountIamRole",
