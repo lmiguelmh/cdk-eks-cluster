@@ -38,7 +38,7 @@ class PipelineStack(cdk.Stack):
                 bucket_name=conf.PIPELINE_ARTIFACT_BUCKET_NAME,
                 auto_delete_objects=True,
                 removal_policy=cdk.RemovalPolicy.DESTROY,
-            )
+            ),
         )
         pipeline_role = iam.Role(
             pipeline,
@@ -100,7 +100,7 @@ class PipelineStack(cdk.Stack):
 
         # add post-deployment steps
         deploy_step = pipelines.CodeBuildStep(
-            "AppDeploy",
+            "PostDeploy",
             env_from_cfn_outputs={
                 "EKS_UPDATE_KUBECONFIG": workload.cluster.eks_update_kubeconfig_cfn_output,
                 "ES_ENDPOINT": workload.cluster_logging.es_domain_endpoint_cfn_output,
@@ -108,12 +108,22 @@ class PipelineStack(cdk.Stack):
             },
             role=pipeline_role,
             commands=[
-                "rm -r ~/.kube && mkdir -p ~/.kube",
-                "$($EKS_UPDATE_KUBECONFIG)",
+                "mkdir -p ~/.kube",
+                "eval $EKS_UPDATE_KUBECONFIG",
+
                 # install fluent-bit
+                "kubectl create namespace logging",
                 "cat fluentbit.yaml | envsubst > fluentbit.yaml",
                 "kubectl apply -f fluentbit.yaml",
+                "kubectl --namespace=logging get sa",
                 "kubectl --namespace=logging get pods",
-            ]
+
+                # enable oidc provider - not sure if already done by cdk
+                "eksctl utils associate-iam-oidc-provider --approve",
+                "helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver",
+                "helm upgrade --install aws-ebs-csi-driver --namespace kube-system aws-ebs-csi-driver/aws-ebs-csi-driver",
+                "helm upgrade --install aws-ebs-csi-driver --namespace kube-system aws-ebs-csi-driver/aws-ebs-csi-driver",
+                "kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-ebs-csi-driver",
+            ],
         )
         stage_deployment.add_post(deploy_step)
