@@ -106,6 +106,9 @@ class ClusterStack(Stack):
             {
                 "apiVersion": "v1",
                 "kind": "Namespace",
+                "metadata": {
+                    "name": "logging",
+                },
             }
         )
         service_account: eks.ServiceAccount = cluster.add_service_account(
