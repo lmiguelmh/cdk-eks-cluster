@@ -112,14 +112,17 @@ class PipelineStack(cdk.Stack):
                 "eval $EKS_UPDATE_KUBECONFIG",
 
                 # install fluent-bit
-                "kubectl create namespace logging",
                 "cat fluentbit.yaml | envsubst > fluentbit.yaml",
-                "kubectl apply -f fluentbit.yaml",
+                "kubectl apply -f fluentbit.yaml ",  # 2nd run it fails with error: no objects passed to apply
                 "kubectl --namespace=logging get sa",
                 "kubectl --namespace=logging get pods",
 
                 # enable oidc provider - not sure if already done by cdk
-                "eksctl utils associate-iam-oidc-provider --approve",
+                "eksctl utils --cluster eks-cluster-eks associate-iam-oidc-provider --approve",
+
+                # install helm
+                "curl -L https://git.io/get_helm.sh | bash -s -- --version v3.8.2",
+                # install aws-ebs-csi-driver
                 "helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver",
                 "helm upgrade --install aws-ebs-csi-driver --namespace kube-system aws-ebs-csi-driver/aws-ebs-csi-driver",
                 "helm upgrade --install aws-ebs-csi-driver --namespace kube-system aws-ebs-csi-driver/aws-ebs-csi-driver",
