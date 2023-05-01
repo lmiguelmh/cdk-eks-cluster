@@ -47,7 +47,7 @@ class ClusterStack(Stack):
         cluster.add_auto_scaling_group_capacity(
             conf.CLUSTER_ASG_NAME,
             auto_scaling_group_name=conf.CLUSTER_ASG_NAME,
-            instance_type=ec2.InstanceType("t3.medium"),
+            instance_type=ec2.InstanceType("t3.large"),
             machine_image_type=eks.MachineImageType.AMAZON_LINUX_2,  # or BOTTLEROCKET
             min_capacity=1,
             desired_capacity=1,
@@ -134,25 +134,29 @@ class ClusterStack(Stack):
             string_value=service_account.role.role_arn,
         )
 
-        # add service account and add-on for EBS CSI
-        # https://docs.aws.amazon.com/eks/latest/userguide/managing-ebs-csi.html
-        # https://docs.aws.amazon.com/eks/latest/userguide/eks-add-ons.html
-        ebs_csi_service_account: eks.ServiceAccount = cluster.add_service_account(
-            id="ebs-csi",
-            name="ebs-csi",
-            namespace="kube-system",  # Important!
-        )
-        ebs_csi_service_account.role.add_managed_policy(
-            iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AmazonEBSCSIDriverPolicy")
-        )
-        eks.CfnAddon(
-            self,
-            'aws-ebs-csi-driver',
-            addon_name='aws-ebs-csi-driver',
-            cluster_name=cluster.cluster_name,
-            preserve_on_delete=False,
-            service_account_role_arn=ebs_csi_service_account.role.role_arn,
-        )
+        # # add service account and add-on for EBS CSI
+        # # https://docs.aws.amazon.com/eks/latest/userguide/managing-ebs-csi.html
+        # # https://docs.aws.amazon.com/eks/latest/userguide/eks-add-ons.html
+        # # When the plugin is deployed, it creates and is configured to use a service account
+        # # that's named **ebs-csi-controller-sa**.
+        # ebs_csi_service_account: eks.ServiceAccount = cluster.add_service_account(
+        #     id="ebs-csi-controller",
+        #     name="ebs-csi-controller-sa",  # the name must be ebs-csi-controller-sa! --> it fails with: Conflicts found when trying to apply
+        #     namespace="kube-system",  # Important!
+        # )
+        # ebs_csi_service_account.role.add_managed_policy(
+        #     iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AmazonEBSCSIDriverPolicy")
+        # )
+        # # this addon will create a service account named **ebs-csi-controller-sa**
+        # addon = eks.CfnAddon(
+        #     self,
+        #     "aws-ebs-csi-driver-addon",
+        #     addon_name="aws-ebs-csi-driver",
+        #     cluster_name=cluster.cluster_name,
+        #     preserve_on_delete=False,
+        #     service_account_role_arn=ebs_csi_service_account.role.role_arn,
+        # )
+        # addon.node.add_dependency(ebs_csi_service_account)
 
         self._eks_update_kubeconfig_cfn_output = CfnOutput(
             self,
