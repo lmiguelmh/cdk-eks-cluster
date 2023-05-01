@@ -1,11 +1,8 @@
 # Proyecto Integrador DevOps 2203 - Grupo 7
 
-En la implementación del presente proyecto se maximizó el uso de infraestructura como código (IaC).
-El [repositorio del proyecto se encuentra aquí](https://github.com/lmiguelmh/cdk-eks-cluster).
-La infraestructura como código forma parte del pilar de **Excelencia Operacional**
-del [AWS Well-Archicted Framework](https://aws.amazon.com/architecture/well-architected).
-Como herramienta para la gestión de la IaC se decidió usar el [AWS Cloud Development Kit (CDK)](https://aws.amazon.com/cdk/), principalmente por los beneficios
-de:
+En la implementación del presente proyecto se maximizó el uso de infraestructura como código (IaC), el [repositorio del proyecto se encuentra aquí](https://github.com/lmiguelmh/cdk-eks-cluster).
+La infraestructura como código forma parte del pilar de **Excelencia Operacional** del [AWS Well-Archicted Framework](https://aws.amazon.com/architecture/well-architected).
+Como herramienta para la gestión de la IaC se decidió usar el [AWS Cloud Development Kit (CDK)](https://aws.amazon.com/cdk/), principalmente por los beneficios de:
 
 - Usar abstracciones de alto nivel para definir infraestructura (Constructos de nivel 1, 2 y 3).
 - Diseñar y desarrollar componentes de infraestructura reusables.
@@ -19,11 +16,10 @@ de:
 - Carlos Ruiz de la Vega
 - Reynaldo Capia Capia
 
-## Crear instancia bastión
+## Crear y configurar instancia bastión
 
-El aprovisionamiento del nodo bastión se encuentra en [cdk-bastion](https://github.com/lmiguelmh/cdk-bastion).
-
-El fragmento de código [bastion.py](https://github.com/lmiguelmh/cdk-bastion/blob/dev/core/constructs/bastion.py) define:
+El aprovisionamiento y configuración del nodo bastión se encuentra en [cdk-bastion](https://github.com/lmiguelmh/cdk-bastion), este proyecto define la IaC requeridas para la creación y configuración de la instancia bastión así como del rol que se usará.
+La definición y configuración del bastión se encuentra en [bastion.py](https://github.com/lmiguelmh/cdk-bastion/blob/dev/core/constructs/bastion.py) e incluye:
 
 1. Tipo y user-data de instancia
 2. Storage de instancia
@@ -124,12 +120,114 @@ Tags.of(self._instance).add(
 )
 ```
 
-### Despliegue desde bastión
+El stack de la instancia bastión se despliega con el comando `cdk deploy`:
 
-Desde bastión sólo es necesario desplegar el pipeline. Por defecto, el pipeline será disparado por cambios en la rama definida
-en `core.common.PIPELINE_GITHUB_BRANCH`.
-Antes de realizar el despliegue se
-requiere [acceder a la consola y configurar la conexión a Github aquí](https://us-east-1.console.aws.amazon.com/codesuite/settings/connections).
+![img_62.png](img_62.png)
+
+![img_63.png](img_63.png)
+
+![img_64.png](img_64.png)
+
+Conectándose a la instancia bastión a través de **Session Manager**:
+
+![img_65.png](img_65.png)
+
+![img_66.png](img_66.png)
+
+Conectándose a la instancia bastión a través de SSH. Las llaves se encuentran en Secrets Manager:
+
+![img_67.png](img_67.png)
+
+![img_68.png](img_68.png)
+![img_69.png](img_69.png)
+
+## Crear cluster EKS
+
+La definición del cluster EKS se encuentra en [cluster/component.py](cluster/component.py) e incluye:
+
+1. Cluster EKS.
+2. Grupo de autoescalamiento para los worker nodes.
+3. Llave SSH para acceder a los workers.
+
+```python
+# 1. Cluster EKS.
+cluster = eks.Cluster(
+    self,
+    conf.CLUSTER_EKS_NAME,
+    cluster_name=conf.CLUSTER_EKS_NAME,
+    version=eks.KubernetesVersion.V1_25,
+    kubectl_layer=lambda_layer_kubectl_v25.KubectlV25Layer(self, "kubectl"),
+    endpoint_access=eks.EndpointAccess.PUBLIC_AND_PRIVATE,
+    default_capacity=0,  # will customize it using an ASG
+    alb_controller=eks.AlbControllerOptions(
+        version=eks.AlbControllerVersion.V2_4_1,
+    ),
+    cluster_logging=[
+        eks.ClusterLoggingTypes.API,
+        eks.ClusterLoggingTypes.AUDIT,
+        eks.ClusterLoggingTypes.AUTHENTICATOR,
+        eks.ClusterLoggingTypes.CONTROLLER_MANAGER,
+        eks.ClusterLoggingTypes.SCHEDULER,
+    ],
+)
+
+# 3. Llave SSH para acceder a los workers.
+key_pair = KeyPair(
+    self,
+    conf.CLUSTER_SSH_KEY_NAME,
+    name=conf.CLUSTER_SSH_KEY_NAME,
+    resource_prefix=conf.CLUSTER_SSH_KEY_NAME,
+)
+
+# 2. Grupo de autoescalamiento para los worker nodes.
+cluster.add_auto_scaling_group_capacity(
+    conf.CLUSTER_ASG_NAME,
+    auto_scaling_group_name=conf.CLUSTER_ASG_NAME,
+    instance_type=ec2.InstanceType("t3.large"),
+    machine_image_type=eks.MachineImageType.AMAZON_LINUX_2,  # or BOTTLEROCKET
+    min_capacity=1,
+    desired_capacity=1,
+    max_capacity=3,
+    vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
+    key_name=key_pair.key_pair_name,
+)
+```
+
+El stack del cluster EKS se despliega con el comando `cdk deploy`:
+
+![img_70.png](img_70.png)
+![img_71.png](img_71.png)
+
+![img_72.png](img_72.png)
+
+Notar que en la consola EKS la pantalla informativa nos indica que nuestro usuario IAM no tiene acceso a los objetos Kubernetes.
+
+![img_73.png](img_73.png)
+
+## Mapear usuarios IAM - cluster EKS
+
+Antes de realizar el mapping se debe configurar kubectl, para lo cual el output del stack tiene el comando.
+
+![img_74.png](img_74.png)
+
+![img_75.png](img_75.png)
+
+Podemos continuar con el mapping. Considerar que anteriormente la consola nos advertía que nuestro usuario IAM no tenía acceso a los objetos de Kubernetes.
+
+![img_76.png](img_76.png)
+
+![img_77.png](img_77.png)
+
+![img_78.png](img_78.png)
+
+Ahora, en la consola EKS, la advertencia desaparece y podemos ver los recursos del cluster.
+
+![img_79.png](img_79.png)
+
+## Crear AWS Code Pipeline
+
+Desde bastión sólo es necesario desplegar el pipeline. Por defecto, el pipeline será disparado por cambios en la rama definida en `core.common.PIPELINE_GITHUB_BRANCH`.
+Antes de realizar el despliegue se requiere [acceder a la consola y configurar la conexión a Github aquí](https://us-east-1.console.aws.amazon.com/codesuite/settings/connections).
 
 ![img_28.png](img_28.png)
 
@@ -145,6 +243,8 @@ export ENV=dev
 # deploy the pipeline
 cdk deploy eks-toolchain
 ```
+
+## Instalar herramientas de monitoreo
 
 ### Despliegue desde local
 
@@ -408,6 +508,8 @@ Eliminando pipeline.
 Algunos de los costos se reducieron debido a la Free Tier de AWS: 100 minutos gratuitos en CodeBuild, 720 horas de instancia EC2 t2.min, etc.
 
 ![img_60.png](img_60.png)
+
+## Historial de cambios a repositorios
 
 ## Problemas
 
