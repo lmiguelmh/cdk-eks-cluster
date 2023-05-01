@@ -16,7 +16,7 @@ class ClusterStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # provision a cluster
+        # 1. Cluster EKS.
         cluster = eks.Cluster(
             self,
             conf.CLUSTER_EKS_NAME,
@@ -35,15 +35,19 @@ class ClusterStack(Stack):
                 eks.ClusterLoggingTypes.CONTROLLER_MANAGER,
                 eks.ClusterLoggingTypes.SCHEDULER,
             ],
+            # masters_role=
+            # role=
         )
 
-        # add asg capacity for worker nodes
+        # 3. Llave SSH para acceder a los workers.
         key_pair = KeyPair(
             self,
             conf.CLUSTER_SSH_KEY_NAME,
             name=conf.CLUSTER_SSH_KEY_NAME,
             resource_prefix=conf.CLUSTER_SSH_KEY_NAME,
         )
+
+        # 2. Grupo de autoescalamiento para los worker nodes.
         cluster.add_auto_scaling_group_capacity(
             conf.CLUSTER_ASG_NAME,
             auto_scaling_group_name=conf.CLUSTER_ASG_NAME,
