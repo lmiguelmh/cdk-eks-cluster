@@ -1,28 +1,141 @@
-# Proyecto Integrador DevOps 2203
+# Proyecto Integrador DevOps 2203 - Grupo 7
 
+En la implementación del presente proyecto se maximizó el uso de infraestructura como código (IaC).
 El [repositorio del proyecto se encuentra aquí](https://github.com/lmiguelmh/cdk-eks-cluster).
+La infraestructura como código forma parte del pilar de **Excelencia Operacional**
+del [AWS Well-Archicted Framework](https://aws.amazon.com/architecture/well-architected).
+Como herramienta para la gestión de la IaC se decidió usar el [AWS Cloud Development Kit (CDK)](https://aws.amazon.com/cdk/), principalmente por los beneficios
+de:
 
-## Grupo 7 - DevOps2203
+- Usar abstracciones de alto nivel para definir infraestructura (Constructos de nivel 1, 2 y 3).
+- Diseñar y desarrollar componentes de infraestructura reusables.
+- Soporte para lenguajes: Typescript/Javascript, Python, Java, GO, .NET.
+- Infraestructura y código de aplicación pueden convivir en el mismo repositorio.
+- El background de los integrantes del equipo es orientado al área de desarrollo.
+
+## Integrantes
 
 - Luis Miguel Mamani Humpiri
 - Carlos Ruiz de la Vega
 - Reynaldo Capia Capia
 
-## Instrucciones
+## Crear instancia bastión
 
-El proyecto CDK para el aprovisionamiento del nodo bastión se encuentra en [cdk-bastion](https://github.com/lmiguelmh/cdk-bastion). 
+El aprovisionamiento del nodo bastión se encuentra en [cdk-bastion](https://github.com/lmiguelmh/cdk-bastion).
 
+El fragmento de código [bastion.py](https://github.com/lmiguelmh/cdk-bastion/blob/dev/core/constructs/bastion.py) define:
+
+1. Tipo y user-data de instancia
+2. Storage de instancia
+3. Tags de instancia
+4. Security group de instancia
+5. KeyPair de instancia
+6. Rol de instancia
+7. Permisos de rol de instancia
+8. Tags de rol de instancia
+9. Asignación de rol de instancia
+
+```python
+# 4. Security group de instancia
+self._instance_security_group = ec2.SecurityGroup(
+    self,
+    "InstanceSecurityGroup",
+    security_group_name=f"{construct_id}-security-group",
+    vpc=vpc,
+    allow_all_outbound=True,
+    description="Bastion instance security group",
+)
+self._instance_security_group.add_ingress_rule(
+    ec2.Peer.any_ipv4(),
+    ec2.Port.tcp(22),
+    "Allows SSH access from any IP"
+)
+
+# 5. KeyPair de instancia
+self._instance_key_pair = KeyPair(
+    self,
+    "InstanceKeyPair",
+    name=f"{construct_id}-key-pair",
+    resource_prefix=f"{construct_id}",
+    store_public_key=True,
+)
+
+# 6. Rol de instancia
+self._instance_role = iam.Role(
+    self,
+    "InstanceRole",
+    role_name=f"{construct_id}-role",
+    assumed_by=iam.ServicePrincipal("ec2.amazonaws.com"),
+)
+
+# 7. Permisos de rol de instancia
+self._instance_role.add_managed_policy(
+    iam.ManagedPolicy.from_aws_managed_policy_name("AdministratorAccess")
+)
+# SSM Agent
+self._instance_role.add_managed_policy(
+    iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSSMManagedInstanceCore")
+)
+
+# 8. Tags de rol de instancia
+Tags.of(self._instance_role).add(
+    key='RoleName',
+    value='ec2-admin-role',
+)
+
+# 2. Storage de instancia
+self._root_volume: ec2.BlockDevice = ec2.BlockDevice(
+    device_name='/dev/xvda',
+    volume=ec2.BlockDeviceVolume.ebs(
+        volume_size=8,
+        volume_type=ec2.EbsDeviceVolumeType.GP2,
+    ),
+)
+
+# Instancia EC2
+self._instance = ec2.Instance(
+    self,
+    "Instance",
+    instance_name=instance_name,
+    vpc=vpc,
+    vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
+    # 9. Asignación de rol de instancia
+    role=self._instance_role,
+    # 4. Security group de instancia
+    security_group=self._instance_security_group,
+    key_name=self._instance_key_pair.key_pair_name,
+    # 1. tipo de instancia
+    instance_type=ec2.InstanceType(instance_type),
+    # 2. storage de instancia
+    block_devices=[self._root_volume],
+    machine_image=ec2.MachineImage.from_ssm_parameter(
+        # Ubuntu LTS
+        parameter_name="/aws/service/canonical/ubuntu/server/focal/stable/current/amd64/hvm/ebs-gp2/ami-id",
+        os=ec2.OperatingSystemType.LINUX,
+    ),
+    # 1. user-data de instancia
+    user_data=user_data,
+)
+
+# 3. Tags de instancia
+Tags.of(self._instance).add(
+    key='Name',
+    value='Jenkins',
+)
+```
 
 ### Despliegue desde bastión
 
-Desde bastión sólo es necesario desplegar el pipeline. Por defecto, el pipeline será disparado por cambios en la rama definida en `core.common.PIPELINE_GITHUB_BRANCH`.
-Antes de realizar el despliegue se requiere [acceder a la consola y configurar la conexión a Github aquí](https://us-east-1.console.aws.amazon.com/codesuite/settings/connections).
+Desde bastión sólo es necesario desplegar el pipeline. Por defecto, el pipeline será disparado por cambios en la rama definida
+en `core.common.PIPELINE_GITHUB_BRANCH`.
+Antes de realizar el despliegue se
+requiere [acceder a la consola y configurar la conexión a Github aquí](https://us-east-1.console.aws.amazon.com/codesuite/settings/connections).
 
 ![img_28.png](img_28.png)
 
 ![img_29.png](img_29.png)
 
-Al finalizar, completar la información en el archivo de configuración `core.conf.{ENV}`. 
+Al finalizar, completar la información en el archivo de configuración `core.conf.{ENV}`.
 
 ```shell
 # set the environment/configuration
@@ -32,7 +145,6 @@ export ENV=dev
 # deploy the pipeline
 cdk deploy eks-toolchain
 ```
-
 
 ### Despliegue desde local
 
@@ -58,10 +170,9 @@ kubectl get pods
 kubectl delete -f pod.yml
 ```
 
-
 ### Despliegue desde pipeline
 
-El despliegue desde el pipeline se dispara automáticamente cuando se realizan cambios en la rama configurada. En entorno `dev` la rama configurada es `dev`. 
+El despliegue desde el pipeline se dispara automáticamente cuando se realizan cambios en la rama configurada. En entorno `dev` la rama configurada es `dev`.
 
 ![img_30.png](img_30.png)
 ![img_31.png](img_31.png)
@@ -72,7 +183,7 @@ El despliegue desde el pipeline se dispara automáticamente cuando se realizan c
 - La definición del cluster se encuentra en [ClusterStack](cluster/component.py).
 - Se usó CDK para la creación de la infraestructura.
     - El aprovisionamiento de los nodos se realiza con un ASG.
-    - Otros recursos son aprovisionados 
+    - Otros recursos son aprovisionados
 - La definición del servicio y el despliegue de la aplicación de ejemplo también se encuentra en [ClusterStack](cluster/component.py).
 
 ![img_15.png](img_15.png)
@@ -128,6 +239,24 @@ helm repo add grafana https://grafana.github.io/helm-charts
 #helm upgrade --install aws-ebs-csi-driver --namespace kube-system aws-ebs-csi-driver/aws-ebs-csi-driver
 # install eksctl - https://github.com/weaveworks/eksctl/releases/
 
+# https://docs.aws.amazon.com/eks/latest/userguide/csi-iam-role.html
+# it will create a policy/role and *annotate* the **existing** ebs-csi-controller-sa service account
+# it will NOT create NOR update the ebs-csi-controller-sa (it already exists!)
+eksctl create iamserviceaccount \
+  --name ebs-csi-controller-sa \
+  --namespace kube-system \
+  --cluster eks-cluster-eks \
+  --attach-policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy \
+  --approve \
+  --role-only \
+  --role-name AmazonEKS_EBS_CSI_DriverRole
+# https://docs.aws.amazon.com/eks/latest/userguide/managing-ebs-csi.html
+# create the addon and attach the role created
+eksctl create addon \
+  --name aws-ebs-csi-driver \
+  --cluster eks-cluster-eks \
+  --service-account-role-arn arn:aws:iam::136737878111:role/AmazonEKS_EBS_CSI_DriverRole --force
+
 # test EBS CSI driver
 # by creating a StorageClass, a PersistentVolumeClaim (PVC) and a pod
 # all at once
@@ -138,8 +267,8 @@ helm repo add grafana https://grafana.github.io/helm-charts
 kubectl apply -f gp3-sc.yaml
 kubectl apply -f pvc-csi.yaml
 kubectl apply -f pod-csi.yaml
-# pod status should be RUNNING after 60s
-kubectl get pod
+# pod status should be RUNNING after ~60s
+kubectl get pod --watch
 # pvc status should be BOUND
 kubectl get pvc
 # check more details of PVC
@@ -157,7 +286,14 @@ helm install prometheus prometheus-community/prometheus \
     --set server.persistentVolume.storageClass="gp2"
 
 # check pods
-kubectl get pods -n prometheus
+kubectl get pods -n prometheus --watch
+
+# does not work
+# export POD_NAME=$(kubectl get pods --namespace prometheus -l "app=prometheus-pushgateway,component=pushgateway" -o jsonpath="{.items[0].metadata.name}")
+# kubectl --namespace prometheus port-forward $POD_NAME 9091
+
+# working
+kubectl expose deployment prometheus-server --type=LoadBalancer --name prometheus-server-public --namespace prometheus
 
 # cleanup
 helm uninstall prometheus --namespace prometheus
@@ -165,6 +301,43 @@ kubectl delete ns prometheus
 ```
 
 ![img_13.png](img_13.png)
+
+![img_37.png](img_37.png)
+
+![img_38.png](img_38.png)
+
+![img_39.png](img_39.png)
+
+![img_40.png](img_40.png)
+
+```shell
+kubectl create namespace grafana
+
+# doesnt work
+helm install grafana grafana/grafana \
+    --namespace grafana \
+    --set persistence.storageClassName="gp2" \
+    --set persistence.enabled=true \
+    --set adminPassword='EKS!sAWSome' \
+    --values grafana.yml \
+    --set service.type=LoadBalancer
+```
+
+![img_41.png](img_41.png)
+
+Luego de eliminar, cambiar el tamaño de los worker nodos, el despliegue funcionó correctamente.
+
+![img_49.png](img_49.png)
+![img_50.png](img_50.png)
+![img_51.png](img_51.png)
+![img_52.png](img_52.png)
+Luego de seleccionar el ID **3119** y el datasource **Prometheus**:
+![img_53.png](img_53.png)
+![img_54.png](img_54.png)
+
+Repetimos para el ID **6417** y el datasource **Prometheus**:
+![img_55.png](img_55.png)
+![img_56.png](img_56.png)
 
 #### Configuración manual
 
@@ -197,6 +370,44 @@ eksctl delete addon --name aws-ebs-csi-driver --cluster ebs-demo-cluster
 ![img_25.png](img_25.png)
 ![img_26.png](img_26.png)
 ![img_27.png](img_27.png)
+
+## Cleanup
+
+Eliminando pasos manuales
+
+```shell
+kubectl delete -f fluentbit.yaml
+helm uninstall prometheus -n prometheus
+kubectl delete ns prometheus
+helm uninstall grafana -n grafana
+kubectl delete ns grafana
+
+eksctl delete addon \
+  --name aws-ebs-csi-driver \
+  --cluster eks-cluster-eks
+eksctl delete iamserviceaccount \
+  --name ebs-csi-controller-sa \
+  --namespace kube-system \
+  --cluster eks-cluster-eks \
+  --wait
+```
+
+![img_57.png](img_57.png)
+![img_58.png](img_58.png)
+
+Eliminando stacks de ES/OS y EKS.
+
+![img_59.png](img_59.png)
+
+Eliminando pipeline.
+
+![img_61.png](img_61.png)
+
+## Reporte de costos generados por el proyecto
+
+Algunos de los costos se reducieron debido a la Free Tier de AWS: 100 minutos gratuitos en CodeBuild, 720 horas de instancia EC2 t2.min, etc.
+
+![img_60.png](img_60.png)
 
 ## Problemas
 
@@ -271,3 +482,29 @@ eksctl delete addon --name aws-ebs-csi-driver --cluster ebs-demo-cluster
         - Se reintenta el comando usando "gp3" como storageClass. Algunos recursos funcionan y otros ya no.
             - ![img_27.png](img_27.png)
         - No se puede obtener mayor detalle de porqué los pods fallaron.
+    - Revisitando el problema y leyendo detenidamente estas [instrucciones](https://docs.aws.amazon.com/eks/latest/userguide/csi-iam-role.html):
+        - ![img_33.png](img_33.png)
+        - ![img_34.png](img_34.png)
+        - Nuestro error fue ignorar que el service account `ebs-csi-controller-sa` ya existía y por lo tanto **NO** debía ser creado por nosotros. Sólo
+          necesitábamos _anotar_ el `ebs-csi-controller-sa` con el rol creado.
+        - Ejecutando las instrucciones y desplegando la aplicación de prueba, el PVC llega a estado BOUND y el pod a RUNNING.
+            - ![img_35.png](img_35.png)
+            - ![img_36.png](img_36.png)
+
+- Problemas al instalar Grafana.
+    - Pod se queda en estado Pending. EBS CSI driver está instalado.
+    - ![img_42.png](img_42.png)
+    - kubectl get ev -n grafana
+    - ![img_43.png](img_43.png)
+    - kubectl get pvc -n grafana
+    - ![img_44.png](img_44.png)
+    - Al ver los eventos creí que era el LB que reiniciaba el pod, al no estar healthy
+    - Seguí estas instrucciones para desplegarlo "por partes" (sin LB) https://grafana.com/docs/agent/latest/operator/helm-getting-started/
+    - El problema persiste:
+        - ![img_46.png](img_46.png)
+    - Al revisar el manifiesto yml vi que requiere 700MiB de memoria. Eliminé los despliegues de prometheus y volví a ejecutar el despliegue:
+        - ![img_45.png](img_45.png)
+    - Eliminé el despliegue por partes y ejecuté el despliegue usando helm y el pod está en Running!
+        - ![img_47.png](img_47.png)
+    - Redesplegué con nodos de mayor tamaño (8GB de memoria).
+        - ![img_48.png](img_48.png)

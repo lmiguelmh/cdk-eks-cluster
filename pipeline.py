@@ -121,12 +121,17 @@ class PipelineStack(cdk.Stack):
                 "eksctl utils --cluster eks-cluster-eks associate-iam-oidc-provider --approve",
 
                 # install helm
-                "curl -L https://git.io/get_helm.sh | bash -s -- --version v3.8.2",
+                # "curl -L https://git.io/get_helm.sh | bash -s -- --version v3.8.2",
                 # install aws-ebs-csi-driver
-                "helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver",
-                "helm upgrade --install aws-ebs-csi-driver --namespace kube-system aws-ebs-csi-driver/aws-ebs-csi-driver",
-                "helm upgrade --install aws-ebs-csi-driver --namespace kube-system aws-ebs-csi-driver/aws-ebs-csi-driver",
-                "kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-ebs-csi-driver",
+                # "helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver",
+                # "helm upgrade --install aws-ebs-csi-driver --namespace kube-system aws-ebs-csi-driver/aws-ebs-csi-driver",
+                # "helm upgrade --install aws-ebs-csi-driver --namespace kube-system aws-ebs-csi-driver/aws-ebs-csi-driver",
+                # "kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-ebs-csi-driver",
+
+                # "git clone https://github.com/kubernetes-sigs/aws-ebs-csi-driver.git",
+                # "cd aws-ebs-csi-driver",
+                # "git checkout v0.2.0",
+                # "make",
             ],
         )
         stage_deployment.add_post(deploy_step)
