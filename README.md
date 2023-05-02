@@ -1,8 +1,10 @@
+[TOC]
+
 # Proyecto Integrador DevOps 2203 - Grupo 7
 
-En la implementación del presente proyecto se maximizó el uso de infraestructura como código (IaC), el [repositorio del proyecto se encuentra aquí](https://github.com/lmiguelmh/cdk-eks-cluster).
-La infraestructura como código forma parte del pilar de **Excelencia Operacional** del [AWS Well-Archicted Framework](https://aws.amazon.com/architecture/well-architected).
-Como herramienta para la gestión de la IaC se decidió usar el [AWS Cloud Development Kit (CDK)](https://aws.amazon.com/cdk/), principalmente por los beneficios de:
+En la implementación del presente proyecto se maximizó el uso de infraestructura como código (IaC), el [repositorio del proyecto se encuentra aquí](https://github.com/lmiguelmh/cdk-eks-cluster). La infraestructura como código forma parte del pilar de **Excelencia Operacional** del [AWS Well-Archicted Framework](https://aws.amazon.com/architecture/well-architected).
+
+Al finalizar se pudo automatizar todo, a excepción de (1) despliegue de prometheus (2) despliegue de grafana, debido a los problemas que se explican en su momento. Como herramienta para la gestión de la IaC se decidió usar el [AWS Cloud Development Kit (CDK)](https://aws.amazon.com/cdk/), principalmente por los beneficios de:
 
 - Usar abstracciones de alto nivel para definir infraestructura (Constructos de nivel 1, 2 y 3).
 - Diseñar y desarrollar componentes de infraestructura reusables.
@@ -18,8 +20,7 @@ Como herramienta para la gestión de la IaC se decidió usar el [AWS Cloud Devel
 
 ## Crear y configurar instancia bastión
 
-El aprovisionamiento y configuración del nodo bastión se encuentra en [cdk-bastion](https://github.com/lmiguelmh/cdk-bastion), este proyecto define la IaC requeridas para la creación y configuración de la instancia bastión así como del rol que se usará.
-La definición y configuración del bastión se encuentra en [bastion.py](https://github.com/lmiguelmh/cdk-bastion/blob/dev/core/constructs/bastion.py) e incluye:
+El aprovisionamiento y configuración del nodo bastión se encuentra en [cdk-bastion](https://github.com/lmiguelmh/cdk-bastion), este proyecto define la IaC requeridas para la creación y configuración de la instancia bastión así como del rol que se usará. La definición y configuración del bastión se encuentra en [bastion.py](https://github.com/lmiguelmh/cdk-bastion/blob/dev/core/constructs/bastion.py) e incluye:
 
 1. Tipo y user-data de instancia
 2. Storage de instancia
@@ -206,18 +207,23 @@ Notar que en la consola EKS la pantalla informativa nos indica que nuestro usuar
 
 ## Mapear usuarios IAM - cluster EKS
 
-Antes de realizar el mapping se debe configurar kubectl, para lo cual el output del stack tiene el comando.
+Antes de realizar el mapping se debe configurar `kubectl`. Para realizar esto se puede usar el comando que se obtiene de uno de los outputs del stack `eks-cluster`.
 
 ![img_74.png](img_74.png)
 
+Luego de ejecutar el comando `aws eks update-kubeconfig...`:
+
 ![img_75.png](img_75.png)
 
-Podemos continuar con el mapping. Considerar que anteriormente la consola nos advertía que nuestro usuario IAM no tenía acceso a los objetos de Kubernetes.
+Ahora, podemos continuar con el mapping. Considerar que anteriormente la consola nos advertía que nuestro usuario IAM no tenía acceso a los objetos de Kubernetes.
 
+`kubectl describe configmap -n kube-system aws-auth`
 ![img_76.png](img_76.png)
 
+`kubectl edit -n kube-system configmap/aws-auth`
 ![img_77.png](img_77.png)
 
+`kubectl describe configmap -n kube-system aws-auth`
 ![img_78.png](img_78.png)
 
 Ahora, en la consola EKS, la advertencia desaparece y podemos ver los recursos del cluster.
@@ -226,49 +232,128 @@ Ahora, en la consola EKS, la advertencia desaparece y podemos ver los recursos d
 
 ## Crear AWS Code Pipeline
 
-Desde bastión sólo es necesario desplegar el pipeline. Por defecto, el pipeline será disparado por cambios en la rama definida en `core.common.PIPELINE_GITHUB_BRANCH`.
-Antes de realizar el despliegue se requiere [acceder a la consola y configurar la conexión a Github aquí](https://us-east-1.console.aws.amazon.com/codesuite/settings/connections).
+La definición del pipeline para CI/CD se encuentra en [pipeline.py](pipeline.py) e incluye:
+
+1. Rol del pipeline.
+2. Paso de sintetización a Cloudformation.
+3. Datos del repositorio.
+4. Pasos de ejecución.
+5. Paso de despliegue.
+
+```python
+pipeline = codepipeline.Pipeline(
+    scope=self,
+    id="Pipeline",
+    pipeline_name=conf.PIPELINE_STACK_NAME,
+    restart_execution_on_update=True,
+    artifact_bucket=s3.Bucket(
+        self,
+        conf.PIPELINE_ARTIFACT_BUCKET_NAME,
+        bucket_name=conf.PIPELINE_ARTIFACT_BUCKET_NAME,
+        auto_delete_objects=True,
+        removal_policy=cdk.RemovalPolicy.DESTROY,
+    ),
+)
+
+# 1. Rol del pipeline.
+pipeline_role = iam.Role(
+    pipeline,
+    conf.PIPELINE_ROLE_NAME,
+    role_name=conf.PIPELINE_ROLE_NAME,
+    assumed_by=iam.ServicePrincipal("codebuild.amazonaws.com"),
+)
+pipeline_role.attach_inline_policy(
+    iam.Policy(
+        id="FullAccessPolicy",
+        scope=pipeline,
+        # TODO reduce permissions
+        statements=[iam.PolicyStatement(
+            resources=["*"],
+            actions=["*"],
+            effect=iam.Effect.ALLOW,
+        )]
+    )
+)
+
+# 2. Paso de sintetización a Cloudformation.
+synth = pipelines.CodeBuildStep(
+    id="Synth",
+    role=pipeline_role,
+    # 3. Datos del repositorio.
+    input=pipelines.CodePipelineSource.connection(
+        repo_string=conf.PIPELINE_GITHUB_REPOSITORY,
+        branch=conf.PIPELINE_GITHUB_BRANCH,
+        connection_arn=conf.PIPELINE_GITHUB_CONNECTION_ARN,
+    ),
+    env={
+        nameof(conf.ENV): conf.ENV,
+    },
+    install_commands=[
+        "python -m pip install -r requirements.txt",
+    ],
+    commands=[
+        f"npx cdk synth {conf.PIPELINE_STACK_NAME}",
+    ],
+)
+code_pipeline = pipelines.CodePipeline(
+    scope=self,
+    id="CodePipeline",
+    code_pipeline=pipeline,
+    docker_enabled_for_synth=True,
+    publish_assets_in_parallel=True,
+    synth=synth,
+)
+
+# 5. Paso de despliegue.
+stage = Stage(
+    scope=code_pipeline,
+    id="Deploy",
+    env=target_aws_env,
+)
+workload = Workload(
+    scope=stage,
+    construct_id=conf.PIPELINE_WORKLOAD_NAME,
+    aws_env=target_aws_env,
+)
+stage_deployment = code_pipeline.add_stage(stage)
+
+# 4. Pasos de ejecución.
+deploy_step = pipelines.CodeBuildStep(
+    "PostDeploy",
+    env_from_cfn_outputs={
+        "EKS_UPDATE_KUBECONFIG": workload.cluster.eks_update_kubeconfig_cfn_output,
+        "ES_ENDPOINT": workload.cluster_logging.es_domain_endpoint_cfn_output,
+        # AWS_REGION is already defined on the environment
+    },
+    role=pipeline_role,
+    commands=[
+        "mkdir -p ~/.kube",
+        "eval $EKS_UPDATE_KUBECONFIG",
+
+        # install fluent-bit
+        "cat fluentbit.yaml | envsubst > fluentbit.yaml",
+        "kubectl apply -f fluentbit.yaml ",  # 2nd run it fails with error: no objects passed to apply
+        "kubectl --namespace=logging get sa",
+        "kubectl --namespace=logging get pods",
+
+        # enable oidc provider
+        "eksctl utils --cluster eks-cluster-eks associate-iam-oidc-provider --approve",
+    ],
+)
+stage_deployment.add_post(deploy_step)
+```
+
+Antes de realizar el despliegue del stack del pipeline se requiere [configurar la conexión a Github](https://us-east-1.console.aws.amazon.com/codesuite/settings/connections).
 
 ![img_28.png](img_28.png)
 
 ![img_29.png](img_29.png)
 
-Al finalizar, completar la información en el archivo de configuración `core.conf.{ENV}`.
+El stack del pipeline se despliega con el comando `cdk deploy eks-toolchain`.
 
-```shell
-# set the environment/configuration
-# on this case we will use the configuration defined on `core.conf.common` and `core.conf.dev`
-export ENV=dev
+![img_81.png](img_81.png)
 
-# deploy the pipeline
-cdk deploy eks-toolchain
-```
-
-## Instalar herramientas de monitoreo
-
-### Despliegue desde local
-
-El despliegue desde local permite el desarrollo ágil y el despliegue de uno o varios stacks sin necesidad de desplegar toda la aplicación.
-
-```shell
-# set the environment/configuration
-export ENV=sandbox
-
-# here we deploy the EKS cluster
-cdk deploy eks-cluster
-
-# update kube configuration to access the EKS cluster
-# run the command located on the output of ClusterStack
-aws eks update-kubeconfig ...
-
-# test kubectl
-kubectl get all
-
-# beware that resources created by kubectl need to be deleted manually (ie. load balancers)
-kubectl apply -f pod.yml
-kubectl get pods
-kubectl delete -f pod.yml
-```
+![img_82.png](img_82.png)
 
 ### Despliegue desde pipeline
 
@@ -278,38 +363,165 @@ El despliegue desde el pipeline se dispara automáticamente cuando se realizan c
 ![img_31.png](img_31.png)
 ![img_32.png](img_32.png)
 
-### Configuración del Cluster EKS
-
-- La definición del cluster se encuentra en [ClusterStack](cluster/component.py).
-- Se usó CDK para la creación de la infraestructura.
-    - El aprovisionamiento de los nodos se realiza con un ASG.
-    - Otros recursos son aprovisionados
-- La definición del servicio y el despliegue de la aplicación de ejemplo también se encuentra en [ClusterStack](cluster/component.py).
+La aplicación demo funcionando:
 
 ![img_15.png](img_15.png)
+
 ![img_16.png](img_16.png)
 
-### Configuración de OpenSearch + Fluent Bit
+### Despliegue desde local
 
-- La definición del cluster se encuentra en [ClusterLoggingStack](cluster_logging/component.py).
-- Se usó CDK para la creación de la infraestructura.
-- Se usó autenticación por Cognito User Pools en vez de un Master password.
-- Así mismo, se creó un serviceAccount para permitir que los pods puedan acceder al API de ES.
-    - ![img_23.png](img_23.png)
-- El mapping de los roles de ES/fluent-bit se encuentra en [ClusterLoggingRolesStack](cluster_logging_roles/component.py).
-    - Importante. Incluir el rol creado en el paso anterior.
+El despliegue desde local permite el desarrollo ágil y el despliegue de uno o varios stacks sin necesidad de desplegar toda la aplicación.
 
 ```shell
-# create fluent-bit
-# before, edit the file an change the namespace, cluster endpoint and aws region 
-kubectl apply -f fluentbit.yaml
-
-# there should be 3 pods for fluent-bit
-kubectl get pods
-
-# cleanup
-kubectl delete -f fluentbit.yaml
+# set the environment/configuration
+export ENV=sandbox
+# here we *only* deploy the EKS cluster
+cdk deploy eks-cluster
+# update kube configuration to access the EKS cluster
+aws eks update-kubeconfig ...
+# test kubectl
+kubectl get all
 ```
+
+## Instalar herramientas de monitoreo
+
+La definición del cluster de ElasticSearch-Kibana (OpenSearch) se encuentran en [cluster_logging/component.py](cluster_logging/component.py). Adicionalmente, se usa autenticación mediante usuarios de Cognito (en vez de un master password).
+
+```python
+es_role = iam.Role(
+    scope=self,
+    id=f"ESRole",
+    assumed_by=iam.ServicePrincipal("es.amazonaws.com"),
+    managed_policies=[iam.ManagedPolicy.from_aws_managed_policy_name("AmazonESCognitoAccess")]
+)
+
+es_domain = elasticsearch.CfnDomain(
+    scope=self,
+    id=f"SearchDomain",
+    elasticsearch_cluster_config=elasticsearch.CfnDomain.ElasticsearchClusterConfigProperty(
+        instance_type="t3.small.elasticsearch",
+    ),
+    ebs_options=elasticsearch.CfnDomain.EBSOptionsProperty(
+        volume_size=10,
+        ebs_enabled=True,
+    ),
+    elasticsearch_version="7.9",
+    domain_name=conf.LOGGING_ES_DOMAIN_NAME,
+    node_to_node_encryption_options=elasticsearch.CfnDomain.NodeToNodeEncryptionOptionsProperty(
+        enabled=True,
+    ),
+    encryption_at_rest_options=elasticsearch.CfnDomain.EncryptionAtRestOptionsProperty(
+        enabled=True,
+    ),
+    advanced_security_options=elasticsearch.CfnDomain.AdvancedSecurityOptionsInputProperty(
+        enabled=True,
+        master_user_options=elasticsearch.CfnDomain.MasterUserOptionsProperty(
+            master_user_arn=es_admin_fn_role.role_arn
+        ),
+    ),
+    domain_endpoint_options=elasticsearch.CfnDomain.DomainEndpointOptionsProperty(
+        enforce_https=True
+    ),
+    cognito_options=elasticsearch.CfnDomain.CognitoOptionsProperty(
+        enabled=True,
+        identity_pool_id=identity_pool.ref,
+        role_arn=es_role.role_arn,
+        user_pool_id=user_pool.ref
+    ),
+    # don't use this without fine-grained access control, vpc support, or ip based restrictions as this allows anonymous access
+    access_policies={
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {
+                    "AWS": "*"
+                },
+                "Action": "es:ESHttp*",
+                "Resource": domain_arn
+            }
+        ]
+    }
+)
+```
+
+La definición del namespace `logging` y del service account para Fluent-Bit se encuentran en [cluster/component.py](cluster/component.py):
+
+```python
+namespace = cluster.add_manifest(
+    "logging-namespace",
+    {
+        "apiVersion": "v1",
+        "kind": "Namespace",
+        "metadata": {
+            "name": "logging",
+        },
+    }
+)
+service_account: eks.ServiceAccount = cluster.add_service_account(
+    id="fluent-bit",
+    name="fluent-bit",
+    namespace="logging",  # fluent-bit.yml uses this namespace
+)
+service_account.add_to_principal_policy(iam.PolicyStatement(
+    actions=["es:ESHttp*"],
+    resources=["*"],  # TODO point to the ES cluster arn
+    effect=iam.Effect.ALLOW
+))
+```
+
+La configuración para el acceso a ElasticSearch desde el service account de Fluent-Bit y desde otros recursos se encuentran en [cluster_logging_roles/component.py](cluster_logging_roles/component.py). Esto se realiza a través de una llamada a una lambda que tiene permisos para llamar al API de administración de ElasticSearch. De esta forma los pods desplegados pueden tener acceso a ElasticSearch.
+
+```python
+es_requests = ESRequests(
+    scope=self,
+    name=conf.LOGGING_ES_DOMAIN_ES_REQUESTS_NAME,
+    function_role=es_admin_fn_role,
+    es_domain_endpoint=es_domain_endpoint,
+)
+es_requests.add_function()
+es_requests.add_custom_resource(
+    all_access_roles=[
+        es_admin_fn_role.role_arn,
+        es_admin_user_role.role_arn,
+        cluster_fluent_bit_service_account_role_arn,
+    ],
+    security_manager_roles=[
+        es_admin_fn_role.role_arn,
+        es_admin_user_role.role_arn,
+    ],
+    kibana_user_roles=[
+        es_limited_user_role.role_arn,
+    ],
+)
+```
+
+Finalmente el despliegue de Fluent-Bit se realiza en [pipeline.py](pipeline.py):
+
+```python
+deploy_step = pipelines.CodeBuildStep(
+    "PostDeploy",
+    env_from_cfn_outputs={
+        "EKS_UPDATE_KUBECONFIG": workload.cluster.eks_update_kubeconfig_cfn_output,
+        "ES_ENDPOINT": workload.cluster_logging.es_domain_endpoint_cfn_output,
+        # AWS_REGION is already defined on the environment
+    },
+    role=pipeline_role,
+    commands=[
+        "mkdir -p ~/.kube",
+        "eval $EKS_UPDATE_KUBECONFIG",
+
+        # deploy fluent-bit
+        "cat fluentbit.yaml | envsubst > fluentbit.yaml",
+        "kubectl apply -f fluentbit.yaml ",
+        "kubectl --namespace=logging get sa",
+        "kubectl --namespace=logging get pods",
+    ],
+)
+```
+
+Luego de realizar el PR respectivo a la rama `dev` se despliega el cluster de ElasticSearch, así como Fluent-Bit.
 
 ![img_9.png](img_9.png)
 
@@ -317,13 +529,14 @@ kubectl delete -f fluentbit.yaml
 
 ![img_11.png](img_11.png)
 
-### Configuración de Prometheus + Grafana
+## Desplegar Prometheus
+
+El despliegue de Prometheus no pudo ser automatizado, debido a diversos [problemas](##Problemas) (ver al final). Si bien es cierto se presentaron varios otros incidentes en otras partes, pero ninguno nos costó tanto esfuerzo/tiempo como para el despliegue de Prometheus.
+
+El reto en este paso fue habilitar la persistencia a través del driver EBS CSI. En nuestro caso, esto se complicó aún más por nuestro deseo de _automatizar todo_ el despliegue con CDK. A continuación se presentan los *pasos manuales* que seguimos para el despliegue de Prometheus:
 
 ```shell
-# install helm
-# helm 3.9+ breaks some packages, awscliv2 should solve this but in my case didn't
-# curl -sSL https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
-# installing helm 3.8.2
+# install helm 3.8.2 because of aws cli v1
 curl -L https://git.io/get_helm.sh | bash -s -- --version v3.8.2
 helm version --short
 helm repo add stable https://charts.helm.sh/stable
@@ -331,14 +544,8 @@ helm search repo stable
 
 # add prometheus repo
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-# add grafana repo
-helm repo add grafana https://grafana.github.io/helm-charts
-# add support for volumes on EBS 
-#helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver
-#helm repo update
-#helm upgrade --install aws-ebs-csi-driver --namespace kube-system aws-ebs-csi-driver/aws-ebs-csi-driver
-# install eksctl - https://github.com/weaveworks/eksctl/releases/
 
+# add support for volumes on EBS 
 # https://docs.aws.amazon.com/eks/latest/userguide/csi-iam-role.html
 # it will create a policy/role and *annotate* the **existing** ebs-csi-controller-sa service account
 # it will NOT create NOR update the ebs-csi-controller-sa (it already exists!)
@@ -351,19 +558,13 @@ eksctl create iamserviceaccount \
   --role-only \
   --role-name AmazonEKS_EBS_CSI_DriverRole
 # https://docs.aws.amazon.com/eks/latest/userguide/managing-ebs-csi.html
-# create the addon and attach the role created
+# create the addon and attach to it the role created before
 eksctl create addon \
   --name aws-ebs-csi-driver \
   --cluster eks-cluster-eks \
   --service-account-role-arn arn:aws:iam::136737878111:role/AmazonEKS_EBS_CSI_DriverRole --force
 
-# test EBS CSI driver
-# by creating a StorageClass, a PersistentVolumeClaim (PVC) and a pod
-# all at once
-#kubectl apply -f dynamic-provisioning/
-#kubectl get pods
-#kubectl delete -f dynamic-provisioning/
-# or step by step
+# test the EBS CSI driver by creating a StorageClass, a PersistentVolumeClaim (PVC) and a pod
 kubectl apply -f gp3-sc.yaml
 kubectl apply -f pvc-csi.yaml
 kubectl apply -f pod-csi.yaml
@@ -373,12 +574,8 @@ kubectl get pod --watch
 kubectl get pvc
 # check more details of PVC
 kubectl describe pvc
-# cleanup
-kubectl delete -f pod-csi.yaml
-kubectl delete -f pvc-csi.yaml
-kubectl delete -f gp3-sc.yaml
 
-# install helm
+# install prometheus
 kubectl create namespace prometheus
 helm install prometheus prometheus-community/prometheus \
     --namespace prometheus \
@@ -388,32 +585,36 @@ helm install prometheus prometheus-community/prometheus \
 # check pods
 kubectl get pods -n prometheus --watch
 
-# does not work
-# export POD_NAME=$(kubectl get pods --namespace prometheus -l "app=prometheus-pushgateway,component=pushgateway" -o jsonpath="{.items[0].metadata.name}")
-# kubectl --namespace prometheus port-forward $POD_NAME 9091
-
-# working
+# expose prometheus endpoint
 kubectl expose deployment prometheus-server --type=LoadBalancer --name prometheus-server-public --namespace prometheus
-
-# cleanup
-helm uninstall prometheus --namespace prometheus
-kubectl delete ns prometheus
 ```
 
-![img_13.png](img_13.png)
+Resultados exitosos de la prueba del driver EBS CSI con los manifiestos de prueba:
+
+![img_36.png](img_36.png)
+
+Resultado exitoso del despliegue de Prometheus:
 
 ![img_37.png](img_37.png)
 
 ![img_38.png](img_38.png)
 
+Luego de exponer Prometheus podemos acceder a la aplicación web:
+
 ![img_39.png](img_39.png)
 
 ![img_40.png](img_40.png)
 
-```shell
-kubectl create namespace grafana
+## Desplegar Grafana
 
-# doesnt work
+El despliegue de Grafana tampoco pudo ser automatizado. Sin embargo, el reto aquí fue encontrar por qué los pods no iniciaban, lo cual se detalla en [problemas](##Problemas) (ver al final). En resumen, se trataba de un problema de que los worker nodes no tenían suficientes recursos para el despliegue. A continuación se presentan los *pasos manuales* que seguimos para el despliegue de Grafana:
+
+```shell
+# add grafana repo
+helm repo add grafana https://grafana.github.io/helm-charts
+
+# install grafana
+kubectl create namespace grafana
 helm install grafana grafana/grafana \
     --namespace grafana \
     --set persistence.storageClassName="gp2" \
@@ -425,55 +626,29 @@ helm install grafana grafana/grafana \
 
 ![img_41.png](img_41.png)
 
-Luego de eliminar, cambiar el tamaño de los worker nodos, el despliegue funcionó correctamente.
+Resultado exitoso del despliegue de Grafana:
 
-![img_49.png](img_49.png)
 ![img_50.png](img_50.png)
-![img_51.png](img_51.png)
+
+Luego de acceder a Grafana con las credenciales configuradas en el despliegue:
+
 ![img_52.png](img_52.png)
+
 Luego de seleccionar el ID **3119** y el datasource **Prometheus**:
+
 ![img_53.png](img_53.png)
+
 ![img_54.png](img_54.png)
 
 Repetimos para el ID **6417** y el datasource **Prometheus**:
+
 ![img_55.png](img_55.png)
+
 ![img_56.png](img_56.png)
-
-#### Configuración manual
-
-```shell
-eksctl create cluster -f config.yaml
-kubectl config current-context
-kubectl apply -f gp3-sc.yaml
-kubectl apply -f pvc-csi.yaml
-# check resources 
-eksctl get cluster
-eksctl get addon --name aws-ebs-csi-driver --cluster ebs-demo-cluster
-kubectl get sc
-
-# install
-helm install prometheus prometheus-community/prometheus \
-    --namespace prometheus \
-    --set alertmanager.persistentVolume.storageClass="gp3" \
-    --set server.persistentVolume.storageClass="gp3"
-# check prometheus
-kubectl get all -n prometheus
-
-# cleanup
-helm uninstall prometheus --namespace prometheus
-kubectl delete -f pvc-csi.yaml
-kubectl delete -f gp3-sc.yaml
-eksctl delete addon --name aws-ebs-csi-driver --cluster ebs-demo-cluster
-
-```
-
-![img_25.png](img_25.png)
-![img_26.png](img_26.png)
-![img_27.png](img_27.png)
 
 ## Cleanup
 
-Eliminando pasos manuales
+Ya que no se pudo automatizar todo, se tienen que realizar los siguientes *pasos manuales*:
 
 ```shell
 kubectl delete -f fluentbit.yaml
@@ -493,23 +668,22 @@ eksctl delete iamserviceaccount \
 ```
 
 ![img_57.png](img_57.png)
+
 ![img_58.png](img_58.png)
 
-Eliminando stacks de ES/OS y EKS.
+Luego, se eliminan los stacks de ElasticSearch y EKS:
 
 ![img_59.png](img_59.png)
 
-Eliminando pipeline.
+Finalmente, se elimina el pipeline:
 
 ![img_61.png](img_61.png)
 
-## Reporte de costos generados por el proyecto
+## Costos generados por el proyecto
 
-Algunos de los costos se reducieron debido a la Free Tier de AWS: 100 minutos gratuitos en CodeBuild, 720 horas de instancia EC2 t2.min, etc.
+El costo final fue de **$9.21**. Algunos de los costos se reducieron debido a la Free Tier de AWS: 100 minutos gratuitos en CodeBuild, 720 horas de instancia EC2 t2.min, etc.
 
-![img_60.png](img_60.png)
-
-## Historial de cambios a repositorios
+![img_80.png](img_80.png)
 
 ## Problemas
 
@@ -529,45 +703,46 @@ Algunos de los costos se reducieron debido a la Free Tier de AWS: 100 minutos gr
     - ![img_2.png](img_2.png)
 
 - No se puede acceder a Kibana con el usuario de Cognito.
-    - Posiblemente un error de integración entre UserPool y el IdentityPool. Se añadieron roles y redesplegó.
+    - Posiblemente un error de integración entre UserPool y el IdentityPool.
+    - Se añadieron roles y redesplegó.
     - ![img_3.png](img_3.png)
 
 - El despliegue de un manifiesto (service + deployment) falla.
-    - Errores de versión de manifiesto. Se corrigió y cambiaron algunos nombres.
+    - Errores de versión de manifiesto.
+    - Se corrigió y cambiaron algunos nombres.
     - ![img_4.png](img_4.png)
 
 - Problemas al eliminar el Cluster EKS, al parecer algunas VPCs, IGs y subnets no pueden eliminarse.
-    - Un balanceador de carga creado con kubectl (manualmente) no podía ser eliminado. Se identificó el balanceador y tuvo que ser eliminado manualmente, luego
-      el stack pudo ser eliminado.
+    - Un balanceador de carga creado con kubectl (manualmente) no podía ser eliminado.
+    - Se identificó el balanceador y tuvo que ser eliminado manualmente, luego el stack pudo ser eliminado.
     - ![img_8.png](img_8.png)
     - ![img_7.png](img_7.png)
     - ![img_6.png](img_6.png)
     - ![img_5.png](img_5.png)
 
-- Error al desplegar Prometheus: INSTALLATION FAILED: Kubernetes cluster unreachable: exec plugin: invalid apiVersion "client.authentication.k8s.io/v1alpha1"
+- Error al desplegar Prometheus: _INSTALLATION FAILED: Kubernetes cluster unreachable: exec plugin: invalid apiVersion "client.authentication.k8s.io/v1alpha1"_
     - Al parecer es un problema de Helm 3.9 + AWS cli v1.
-    - Instalando AWS cli v2 no funcionó (https://github.com/helm/helm/issues/10975#issuecomment-1132139799)
+    - [Instalando AWS cli v2](https://github.com/helm/helm/issues/10975#issuecomment-1132139799) no funcionó.
     - Tuve que revertir y usar la v3.8.2 de Helm.
     - ![img_12.png](img_12.png)
 
-- El pod de helm se queda en _Pending_.
+- Varios pods de Prometheus se quedan en estado _Pending_.
     - ![img_14.png](img_14.png)
     - No hay logs en `kubectl logs -n prometheus pod/prometheus-server-77df547d88-l8rpn -c prometheus-server`.
     - `kubectl describe -n prometheus pods/prometheus-server-77df547d88-bxtdc` no ayuda:
         - ![img_17.png](img_17.png)
     - `kubectl describe pvc -n prometheus` parece un problema de volúmenes. Al parecer no puede crear algun volumen.
         - ![img_18.png](img_18.png)
-    - Se instaló aws-ebs-csi-driver, ahora todos los pods en _Pending_.
+    - Se instaló aws-ebs-csi-driver usando helm, ahora todos los pods en _Pending_.
         - ![img_19.png](img_19.png)
-    - Se siguió el siguiente post para [habilitar el almacenamiento persistente en EKS](https://repost.aws/knowledge-center/eks-persistent-storage)
+    - Se siguió el siguiente post para [habilitar el almacenamiento persistente en EKS](https://repost.aws/knowledge-center/eks-persistent-storage).
     - Se encontró un problema al crear el ServiceAccount y realizar el despliegue. Solucionado al desinstalar `aws-ebs-csi-driver`, instalado previamente.
         - ![img_20.png](img_20.png)
     - Se intentó la configuración del despliegue usando el add-on de EKS para el driver EBS CSI. Pero el pod de prueba de AWS se queda en _Pending_.
         - ![img_21.png](img_21.png)
     - Se intentó la [instalación del driver EBS CSI usando helm](https://github.com/kubernetes-sigs/aws-ebs-csi-driver/blob/master/docs/install.md)
         - ![img_22.png](img_22.png)
-    - Se volvió a reintentar, esta vez siquiendo
-      este [blog de AWS para usar el EBS CSI driver como un add-on de EKS](https://aws.amazon.com/blogs/containers/amazon-ebs-csi-driver-is-now-generally-available-in-amazon-eks-add-ons/)
+    - Se volvió a reintentar, esta vez siquiendo este [blog de AWS para usar el EBS CSI driver como un add-on de EKS](https://aws.amazon.com/blogs/containers/amazon-ebs-csi-driver-is-now-generally-available-in-amazon-eks-add-ons/)
         - Repitiendo los pasos se encontró que el Service Account fue creado en el namespace `default` cuando debió ser creado en el namespace `kube-system`.
         - Así mismo se encontró algunas otras herramientas para diagnosticar los componentes del add-on:
             - `kubectl get deploy,ds -l=app.kubernetes.io/name=aws-ebs-csi-driver -n kube-system`
@@ -576,10 +751,9 @@ Algunos de los costos se reducieron debido a la Free Tier de AWS: 100 minutos gr
         - El problema persiste, pero ahora al hacer describe del PersistentVolumeClaim (PVC) obtenemos varios errores.
             - ![img_24.png](img_24.png)
         - Redesplegando el stack, para acelerar las cosas se puede usar otra región para el despliegue, y no esperar a que el cluster se elimine por completo.
-        - Problema persiste.
-    - Creando el cluster con kubectl según
-      el [blog](https://aws.amazon.com/blogs/containers/amazon-ebs-csi-driver-is-now-generally-available-in-amazon-eks-add-ons/), el PVC llega a estado BOUND, y
-      el pod a RUNNING! El problema debe estar en la forma en cómo CDK crea el cluster EKS o algún policy o recurso fallido.
+        - El problema persiste.
+    - Creando el cluster manualmente con kubectl siguiendo este [blog de AWS sobre el add-on para el driver EBS CSI](https://aws.amazon.com/blogs/containers/amazon-ebs-csi-driver-is-now-generally-available-in-amazon-eks-add-ons/), el PVC llega a estado BOUND, y el pod a RUNNING!
+        - El problema debe estar en la forma en cómo estamos creando el cluster EKS o algún otro recurso con CDK.
         - Se crea el storageClass "gp3".
         - Se reintenta el comando usando "gp3" como storageClass. Algunos recursos funcionan y otros ya no.
             - ![img_27.png](img_27.png)
@@ -587,26 +761,26 @@ Algunos de los costos se reducieron debido a la Free Tier de AWS: 100 minutos gr
     - Revisitando el problema y leyendo detenidamente estas [instrucciones](https://docs.aws.amazon.com/eks/latest/userguide/csi-iam-role.html):
         - ![img_33.png](img_33.png)
         - ![img_34.png](img_34.png)
-        - Nuestro error fue ignorar que el service account `ebs-csi-controller-sa` ya existía y por lo tanto **NO** debía ser creado por nosotros. Sólo
-          necesitábamos _anotar_ el `ebs-csi-controller-sa` con el rol creado.
+        - **Nuestro error** fue ignorar que el service account `ebs-csi-controller-sa` ya existía y por lo tanto **NO** debía ser creado por nosotros. Sólo necesitábamos _anotar_ el `ebs-csi-controller-sa` con el rol creado.
         - Ejecutando las instrucciones y desplegando la aplicación de prueba, el PVC llega a estado BOUND y el pod a RUNNING.
             - ![img_35.png](img_35.png)
             - ![img_36.png](img_36.png)
 
-- Problemas al instalar Grafana.
-    - Pod se queda en estado Pending. EBS CSI driver está instalado.
+- El pod de Grafana se queda en estado Pending. Considerar que ya tenemos el driver EBS CSI instalado, por lo tanto el problema debe ser otro.
     - ![img_42.png](img_42.png)
-    - kubectl get ev -n grafana
-    - ![img_43.png](img_43.png)
-    - kubectl get pvc -n grafana
-    - ![img_44.png](img_44.png)
-    - Al ver los eventos creí que era el LB que reiniciaba el pod, al no estar healthy
-    - Seguí estas instrucciones para desplegarlo "por partes" (sin LB) https://grafana.com/docs/agent/latest/operator/helm-getting-started/
-    - El problema persiste:
+    - El PVC está en pendiente esperando por solicitudes: `kubectl get pvc -n grafana`
+        - ![img_44.png](img_44.png)
+    - Los eventos muestran que el pod se reinicia constantemente: `kubectl get ev -n grafana`
+        - ![img_43.png](img_43.png)
+    - Al ver los eventos creí que era el balanceador de carga que reiniciaba el pod, al no estar healthy
+    - Seguí estas [instrucciones para desplegar Grafana](https://grafana.com/docs/agent/latest/operator/helm-getting-started/) por "partes".
+    - Redesplegando sin el balanceador de carga, el problema persiste:
         - ![img_46.png](img_46.png)
-    - Al revisar el manifiesto yml vi que requiere 700MiB de memoria. Eliminé los despliegues de prometheus y volví a ejecutar el despliegue:
+    - Al revisar el manifiesto del pod vi que requiere 700MiB de memoria, podría ser un problema de recursos. Lamentablemente el monitoreo EC2 de los worker nodes sólo muestra el CPU / disco / red.
+    - Eliminé los despliegues de prometheus y volví a ejecutar el despliegue funcionó exitosamente!
         - ![img_45.png](img_45.png)
-    - Eliminé el despliegue por partes y ejecuté el despliegue usando helm y el pod está en Running!
+    - Eliminé el despliegue por partes y ejecuté el despliegue usando helm y funcionó exitosamente!
         - ![img_47.png](img_47.png)
-    - Redesplegué con nodos de mayor tamaño (8GB de memoria).
+    - Luego de eliminar, cambiar el tamaño de los worker nodos (8Gb de memoria), el despliegue funcionó correctamente.
         - ![img_48.png](img_48.png)
+        - ![img_49.png](img_49.png)
