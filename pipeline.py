@@ -26,7 +26,6 @@ class PipelineStack(cdk.Stack):
     ):
         super().__init__(scope, construct_id, **kwargs)
 
-        # configure pipeline
         pipeline = codepipeline.Pipeline(
             scope=self,
             id="Pipeline",
@@ -40,6 +39,8 @@ class PipelineStack(cdk.Stack):
                 removal_policy=cdk.RemovalPolicy.DESTROY,
             ),
         )
+
+        # 1. Rol del pipeline.
         pipeline_role = iam.Role(
             pipeline,
             conf.PIPELINE_ROLE_NAME,
@@ -58,9 +59,12 @@ class PipelineStack(cdk.Stack):
                 )]
             )
         )
+
+        # 2. Paso de sintetización a Cloudformation.
         synth = pipelines.CodeBuildStep(
             id="Synth",
             role=pipeline_role,
+            # 3. Datos del repositorio.
             input=pipelines.CodePipelineSource.connection(
                 repo_string=conf.PIPELINE_GITHUB_REPOSITORY,
                 branch=conf.PIPELINE_GITHUB_BRANCH,
@@ -85,7 +89,7 @@ class PipelineStack(cdk.Stack):
             synth=synth,
         )
 
-        # add deployment
+        # 5. Paso de despliegue.
         stage = Stage(
             scope=code_pipeline,
             id="Deploy",
@@ -98,7 +102,7 @@ class PipelineStack(cdk.Stack):
         )
         stage_deployment = code_pipeline.add_stage(stage)
 
-        # add post-deployment steps
+        # 4. Pasos de ejecución.
         deploy_step = pipelines.CodeBuildStep(
             "PostDeploy",
             env_from_cfn_outputs={
@@ -111,27 +115,11 @@ class PipelineStack(cdk.Stack):
                 "mkdir -p ~/.kube",
                 "eval $EKS_UPDATE_KUBECONFIG",
 
-                # install fluent-bit
+                # deploy fluent-bit
                 "cat fluentbit.yaml | envsubst > fluentbit.yaml",
                 "kubectl apply -f fluentbit.yaml ",  # 2nd run it fails with error: no objects passed to apply
                 "kubectl --namespace=logging get sa",
                 "kubectl --namespace=logging get pods",
-
-                # enable oidc provider - not sure if already done by cdk
-                "eksctl utils --cluster eks-cluster-eks associate-iam-oidc-provider --approve",
-
-                # install helm
-                # "curl -L https://git.io/get_helm.sh | bash -s -- --version v3.8.2",
-                # install aws-ebs-csi-driver
-                # "helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver",
-                # "helm upgrade --install aws-ebs-csi-driver --namespace kube-system aws-ebs-csi-driver/aws-ebs-csi-driver",
-                # "helm upgrade --install aws-ebs-csi-driver --namespace kube-system aws-ebs-csi-driver/aws-ebs-csi-driver",
-                # "kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-ebs-csi-driver",
-
-                # "git clone https://github.com/kubernetes-sigs/aws-ebs-csi-driver.git",
-                # "cd aws-ebs-csi-driver",
-                # "git checkout v0.2.0",
-                # "make",
             ],
         )
         stage_deployment.add_post(deploy_step)
